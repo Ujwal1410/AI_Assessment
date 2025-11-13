@@ -1,0 +1,748 @@
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from ..core.dependencies import require_editor
+from ..db.mongo import get_db
+from ..schemas.assessment import (
+    AddCustomTopicsRequest,
+    AddNewQuestionRequest,
+    DeleteQuestionRequest,
+    FinalizeAssessmentRequest,
+    GenerateQuestionsRequest,
+    GenerateTopicsRequest,
+    RemoveCustomTopicsRequest,
+    ScheduleUpdateRequest,
+    UpdateQuestionsRequest,
+    UpdateSingleQuestionRequest,
+    UpdateTopicSettingsRequest,
+)
+from ..services.ai import generate_questions_for_topic_safe, generate_topics_from_input
+from ..utils.mongo import convert_object_ids, serialize_document, to_object_id
+from ..utils.responses import success_response
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/assessments", tags=["assessments"])
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _check_assessment_access(assessment: Dict[str, Any], current_user: Dict[str, Any]) -> None:
+    if current_user.get("role") == "super_admin":
+        return
+    
+    # Normalize organization IDs to strings for comparison
+    assessment_org = assessment.get("organization")
+    if assessment_org is not None:
+        # Convert ObjectId to string if needed
+        assessment_org = str(assessment_org)
+    
+    user_org = current_user.get("organization")
+    if user_org is not None:
+        # Already a string from serialization, but ensure it's a string
+        user_org = str(user_org)
+    
+    # Allow access if organizations match (including both None)
+    if assessment_org == user_org:
+        return
+    
+    # If assessment has no organization, allow access if user is the creator
+    if assessment_org is None:
+        assessment_created_by = assessment.get("createdBy")
+        user_id = current_user.get("id")
+        if assessment_created_by is not None and user_id is not None:
+            # Convert both to strings for comparison (createdBy is ObjectId, user_id is string)
+            if str(assessment_created_by) == str(user_id):
+                return
+    
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access denied. You can only access your organization's assessments.",
+    )
+
+
+async def _get_assessment(db: AsyncIOMotorDatabase, assessment_id: str) -> Dict[str, Any]:
+    try:
+        oid = to_object_id(assessment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assessment ID") from exc
+
+    assessment = await db.assessments.find_one({"_id": oid})
+    if not assessment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+    return assessment
+
+
+async def _save_assessment(db: AsyncIOMotorDatabase, assessment: Dict[str, Any]) -> None:
+    assessment_id = assessment.get("_id")
+    if not assessment_id:
+        raise RuntimeError("Assessment document missing _id")
+    assessment["updatedAt"] = _now_utc()
+    await db.assessments.replace_one({"_id": assessment_id}, assessment)
+
+
+def _ensure_topic_structure(topic: Dict[str, Any]) -> Dict[str, Any]:
+    topic.setdefault("questions", [])
+    topic.setdefault("questionConfigs", [])
+    topic.setdefault("questionTypes", [])
+    return topic
+
+
+@router.post("/generate-topics")
+async def generate_topics(
+    payload: GenerateTopicsRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    if not payload.skills:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing input fields")
+
+    topics = await generate_topics_from_input(payload.jobRole, payload.experience, payload.skills)
+    topic_docs = [
+        {
+            "topic": t,
+            "numQuestions": 0,
+            "questionTypes": [],
+            "difficulty": "Medium",
+            "source": "AI",
+            "questions": [],
+            "questionConfigs": [],
+        }
+        for t in topics
+    ]
+
+    assessment_doc: Dict[str, Any] = {
+        "title": f"{payload.jobRole} Assessment",
+        "description": f"{payload.jobRole} test for {payload.experience} exp level.",
+        "topics": topic_docs,
+        "customTopics": topics,
+        "status": "draft",
+        "createdBy": to_object_id(current_user.get("id")),
+        "organization": to_object_id(current_user.get("organization")) if current_user.get("organization") else None,
+        "isGenerated": False,
+        "createdAt": _now_utc(),
+        "updatedAt": _now_utc(),
+    }
+
+    result = await db.assessments.insert_one(assessment_doc)
+    assessment_doc["_id"] = result.inserted_id
+    return success_response("Topics generated successfully", serialize_document(assessment_doc))
+
+
+@router.post("/update-topics")
+async def update_topic_settings(
+    payload: UpdateTopicSettingsRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    if not payload.updatedTopics:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid input")
+
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topics = assessment.get("topics", [])
+    for update in payload.updatedTopics:
+        topic_obj = next((t for t in topics if t.get("topic") == update.topic), None)
+        if not topic_obj:
+            continue
+        topic_obj = _ensure_topic_structure(topic_obj)
+
+        if update.numQuestions is not None:
+            topic_obj["numQuestions"] = update.numQuestions
+        if update.questionTypes is not None:
+            topic_obj["questionTypes"] = update.questionTypes
+        if update.difficulty:
+            topic_obj["difficulty"] = update.difficulty
+
+        if update.questions:
+            for idx, question_config in enumerate(update.questions):
+                if idx < len(topic_obj.get("questions", [])):
+                    existing_question = topic_obj["questions"][idx]
+                    existing_question.update(question_config.model_dump(exclude_unset=True))
+
+        if update.questionConfigs:
+            topic_obj["questionConfigs"] = [qc.model_dump(exclude_unset=True) for qc in update.questionConfigs]
+
+    assessment["topics"] = topics
+    await _save_assessment(db, assessment)
+    return success_response("Topic settings updated successfully", assessment["topics"])
+
+
+@router.post("/add-topic")
+async def add_custom_topics(
+    payload: AddCustomTopicsRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    if not payload.newTopics:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid input")
+
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topics = assessment.get("topics", [])
+    custom_topics = set(assessment.get("customTopics", []))
+
+    for topic_data in payload.newTopics:
+        if isinstance(topic_data, str):
+            topic_name = topic_data
+            exists = any(t.get("topic") == topic_name for t in topics)
+            if not exists:
+                topics.append(
+                    {
+                        "topic": topic_name,
+                        "numQuestions": 0,
+                        "questionTypes": [],
+                        "difficulty": "Medium",
+                        "source": "User",
+                        "questions": [],
+                        "questionConfigs": [],
+                    }
+                )
+            custom_topics.add(topic_name)
+        else:
+            topic_dict = topic_data.model_dump(exclude_unset=True)
+            topic_name = topic_dict.get("topic")
+            exists = any(t.get("topic") == topic_name for t in topics)
+            if not exists:
+                topics.append(
+                    {
+                        "topic": topic_name,
+                        "numQuestions": topic_dict.get("numQuestions", 0),
+                        "questionTypes": topic_dict.get("questionTypes", []),
+                        "difficulty": topic_dict.get("difficulty", "Medium"),
+                        "source": "User",
+                        "questions": [],
+                        "questionConfigs": topic_dict.get("questionConfigs", []),
+                    }
+                )
+            custom_topics.add(topic_name)
+
+    assessment["topics"] = topics
+    assessment["customTopics"] = list(custom_topics)
+    await _save_assessment(db, assessment)
+    return success_response("Custom topics added successfully", assessment["topics"])
+
+
+@router.delete("/remove-topic")
+async def remove_custom_topics(
+    payload: RemoveCustomTopicsRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    if not payload.topicsToRemove:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid input")
+
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topics_to_remove = set(payload.topicsToRemove)
+    assessment["topics"] = [t for t in assessment.get("topics", []) if t.get("topic") not in topics_to_remove]
+    assessment["customTopics"] = [t for t in assessment.get("customTopics", []) if t not in topics_to_remove]
+
+    await _save_assessment(db, assessment)
+    return success_response("Topics removed successfully", assessment["topics"])
+
+
+def _build_generation_config(topic_obj: Dict[str, Any]) -> Dict[str, Any]:
+    config = {"numQuestions": topic_obj.get("numQuestions", 0)}
+    question_configs = topic_obj.get("questionConfigs") or []
+    if question_configs:
+        for index, q_config in enumerate(question_configs):
+            config[f"Q{index + 1}type"] = q_config.get("type", "Subjective")
+            config[f"Q{index + 1}difficulty"] = q_config.get("difficulty", "Medium")
+    else:
+        for index, q_type in enumerate(topic_obj.get("questionTypes") or []):
+            config[f"Q{index + 1}type"] = q_type
+            config[f"Q{index + 1}difficulty"] = topic_obj.get("difficulty", "Medium")
+    return config
+
+
+@router.post("/generate-questions")
+async def generate_questions(
+    payload: GenerateQuestionsRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topics = [
+        t
+        for t in assessment.get("topics", [])
+        if t.get("numQuestions", 0) > 0
+        and (
+            (t.get("questionTypes") and len(t["questionTypes"]) > 0)
+            or (t.get("questionConfigs") and len(t["questionConfigs"]) > 0)
+        )
+    ]
+    if not topics:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid topics for question generation")
+
+    results = []
+    for topic in topics:
+        topic = _ensure_topic_structure(topic)
+        config = _build_generation_config(topic)
+        generated_questions = await generate_questions_for_topic_safe(topic.get("topic"), config)
+        existing_questions = topic.get("questions", [])
+        merged_questions: List[Dict[str, Any]] = []
+        for index, new_question in enumerate(generated_questions):
+            if index < len(existing_questions):
+                merged = existing_questions[index].copy()
+                merged.update(new_question)
+            else:
+                merged = new_question
+            merged_questions.append(merged)
+        topic["questions"] = merged_questions
+        results.append({"topic": topic.get("topic"), "questions": merged_questions})
+
+    assessment["isGenerated"] = True
+    assessment["status"] = "draft"
+    await _save_assessment(db, assessment)
+    return success_response("Questions generated and saved successfully", results)
+
+
+@router.put("/update-questions")
+async def update_questions(
+    payload: UpdateQuestionsRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topic = next((t for t in assessment.get("topics", []) if t.get("topic") == payload.topic), None)
+    if not topic:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Topic not found in assessment")
+
+    topic["questions"] = [q.model_dump(exclude_unset=True) for q in payload.updatedQuestions]
+    assessment["status"] = "draft"
+    await _save_assessment(db, assessment)
+    return success_response(
+        "Updated questions saved successfully",
+        {
+            "topic": topic.get("topic"),
+            "questions": topic["questions"],
+            "totalQuestions": len(topic["questions"]),
+        },
+    )
+
+
+@router.put("/update-single-question")
+async def update_single_question(
+    payload: UpdateSingleQuestionRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topic = next((t for t in assessment.get("topics", []) if t.get("topic") == payload.topic), None)
+    if not topic:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Topic not found in assessment")
+
+    questions = topic.get("questions", [])
+    if payload.questionIndex >= len(questions):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    updated_question = questions[payload.questionIndex]
+    updated_question.update(payload.updatedQuestion.model_dump(exclude_unset=True))
+    updated_question["updatedAt"] = _now_utc()
+    assessment["status"] = "draft"
+    await _save_assessment(db, assessment)
+    return success_response(
+        "Question updated successfully",
+        {
+            "topic": topic.get("topic"),
+            "questionIndex": payload.questionIndex,
+            "question": updated_question,
+        },
+    )
+
+
+@router.post("/add-question")
+async def add_new_question(
+    payload: AddNewQuestionRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topic = next((t for t in assessment.get("topics", []) if t.get("topic") == payload.topic), None)
+    if not topic:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Topic not found in assessment")
+
+    topic = _ensure_topic_structure(topic)
+    question = payload.newQuestion.model_dump(exclude_unset=True)
+    question["createdAt"] = _now_utc()
+    question["updatedAt"] = _now_utc()
+    topic["questions"].append(question)
+    assessment["status"] = "draft"
+    await _save_assessment(db, assessment)
+    return success_response(
+        "Question added successfully",
+        {
+            "topic": topic.get("topic"),
+            "question": question,
+            "questionIndex": len(topic["questions"]) - 1,
+            "totalQuestions": len(topic["questions"]),
+        },
+    )
+
+
+@router.delete("/delete-question")
+async def delete_question(
+    payload: DeleteQuestionRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, payload.assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topic = next((t for t in assessment.get("topics", []) if t.get("topic") == payload.topic), None)
+    if not topic:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Topic not found in assessment")
+
+    questions = topic.get("questions", [])
+    if payload.questionIndex >= len(questions):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
+
+    deleted_question = questions.pop(payload.questionIndex)
+    assessment["status"] = "draft"
+    await _save_assessment(db, assessment)
+    return success_response(
+        "Question deleted successfully",
+        {
+            "topic": topic.get("topic"),
+            "deletedQuestion": deleted_question,
+            "totalQuestions": len(questions),
+        },
+    )
+
+
+@router.post("/finalize-assessment")
+async def finalize_assessment(
+    payload: FinalizeAssessmentRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    try:
+        assessment = await _get_assessment(db, payload.assessmentId)
+        _check_assessment_access(assessment, current_user)
+
+        assessment["status"] = "ready"
+        if payload.title:
+            assessment["title"] = payload.title
+        if payload.description:
+            assessment["description"] = payload.description
+        assessment["finalizedAt"] = _now_utc()
+        await _save_assessment(db, assessment)
+        
+        # Serialize the assessment document before returning
+        serialized_assessment = serialize_document(assessment)
+        if serialized_assessment is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to serialize assessment document",
+            )
+        
+        return success_response("Assessment finalized successfully", serialized_assessment)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error finalizing assessment: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to finalize assessment: {str(exc)}",
+        ) from exc
+
+
+@router.get("/get-questions")
+async def get_questions_by_topic(
+    assessmentId: str = Query(..., alias="assessmentId"),
+    topic: str = Query(...),
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, assessmentId)
+    _check_assessment_access(assessment, current_user)
+
+    topic_obj = next((t for t in assessment.get("topics", []) if t.get("topic") == topic), None)
+    if not topic_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Topic not found")
+    return success_response("Questions fetched successfully", topic_obj.get("questions", []))
+
+
+@router.get("/{assessment_id}/header")
+async def get_assessment_header(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, assessment_id)
+    _check_assessment_access(assessment, current_user)
+
+    data = {
+        "id": str(assessment.get("_id")),
+        "title": assessment.get("title"),
+        "status": assessment.get("status"),
+        "hasSchedule": bool(assessment.get("schedule")),
+    }
+    return success_response("Assessment header fetched successfully", data)
+
+
+@router.get("/{assessment_id}/schedule")
+async def get_assessment_schedule(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, assessment_id)
+    _check_assessment_access(assessment, current_user)
+
+    data = {
+        "assessmentId": str(assessment.get("_id")),
+        "title": assessment.get("title"),
+        "status": assessment.get("status"),
+        "schedule": assessment.get("schedule"),
+    }
+    return success_response("Assessment schedule fetched successfully", data)
+
+
+@router.put("/{assessment_id}/update-schedule")
+async def update_assessment_schedule(
+    assessment_id: str,
+    payload: ScheduleUpdateRequest,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, assessment_id)
+    _check_assessment_access(assessment, current_user)
+
+    start_time = payload.startTime
+    end_time = payload.endTime
+    if start_time >= end_time:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Start time must be before end time")
+
+    schedule = {
+        "startTime": start_time,
+        "endTime": end_time,
+        "duration": payload.duration,
+        "durationUnit": payload.durationUnit or "hours",
+        "attemptCount": payload.attemptCount or 1,
+        "proctoringOptions": payload.proctoringOptions.model_dump(exclude_unset=True)
+        if payload.proctoringOptions
+        else {
+            "enabled": False,
+            "webcamRequired": False,
+            "screenRecording": False,
+            "browserLock": False,
+            "fullScreenMode": False,
+        },
+        "vpnRequired": payload.vpnRequired or False,
+        "linkSharingEnabled": payload.linkSharingEnabled or False,
+        "mailFeedbackReport": payload.mailFeedbackReport or False,
+        "candidateQuestions": payload.candidateQuestions.model_dump(exclude_unset=True)
+        if payload.candidateQuestions
+        else {
+            "allowed": True,
+            "maxQuestions": 3,
+            "timeLimit": 5,
+            "questions": [],
+        },
+        "instructions": payload.instructions,
+        "timezone": payload.timezone or "UTC",
+        "isActive": bool(payload.isActive),
+    }
+
+    assessment["schedule"] = schedule
+    if assessment.get("status") in {"draft", "ready"}:
+        assessment["status"] = "scheduled"
+    await _save_assessment(db, assessment)
+    return success_response(
+        "Assessment schedule updated successfully",
+        {"assessmentId": str(assessment.get("_id")), "schedule": schedule, "status": assessment.get("status")},
+    )
+
+
+@router.get("/{assessment_id}/topics")
+async def get_topics(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, assessment_id)
+    _check_assessment_access(assessment, current_user)
+    return success_response("Topics fetched successfully", assessment.get("topics", []))
+
+
+@router.get("/{assessment_id}/questions")
+async def get_all_questions(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    assessment = await _get_assessment(db, assessment_id)
+    _check_assessment_access(assessment, current_user)
+
+    questions_with_topics: List[Dict[str, Any]] = []
+    for topic in assessment.get("topics", []):
+        topic_questions = topic.get("questions") or []
+        for index, question in enumerate(topic_questions):
+            question_with_topic = question.copy()
+            question_with_topic.update(
+                {
+                    "topic": topic.get("topic"),
+                    "topicDifficulty": topic.get("difficulty"),
+                    "topicSource": topic.get("source"),
+                    "questionIndex": index,
+                }
+            )
+            questions_with_topics.append(question_with_topic)
+
+    data = {
+        "assessment": {
+            "id": str(assessment.get("_id")),
+            "title": assessment.get("title"),
+            "description": assessment.get("description"),
+            "status": assessment.get("status"),
+            "totalQuestions": len(questions_with_topics),
+        },
+        "topics": [
+            {
+                "topic": topic.get("topic"),
+                "numQuestions": topic.get("numQuestions"),
+                "questionTypes": topic.get("questionTypes"),
+                "difficulty": topic.get("difficulty"),
+                "source": topic.get("source"),
+                "questionCount": len(topic.get("questions") or []),
+            }
+            for topic in assessment.get("topics", [])
+        ],
+        "questions": questions_with_topics,
+    }
+    return success_response("All questions fetched successfully", data)
+
+
+@router.get("")
+async def get_all_assessments_with_schedule(
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    try:
+        query: Dict[str, Any] = {}
+        if current_user.get("role") != "super_admin":
+            user_org = current_user.get("organization")
+            user_id = current_user.get("id")
+            
+            # Build query based on user's organization
+            if user_org:
+                # User has organization - query by organization
+                try:
+                    query["organization"] = to_object_id(user_org)
+                except ValueError:
+                    # Invalid organization ID - fall back to createdBy
+                    if user_id:
+                        try:
+                            query["createdBy"] = to_object_id(user_id)
+                        except ValueError:
+                            pass
+            else:
+                # User has no organization - query by createdBy
+                if user_id:
+                    try:
+                        query["createdBy"] = to_object_id(user_id)
+                    except ValueError:
+                        pass
+
+        # Fetch assessments with required fields
+        cursor = db.assessments.find(query, {"title": 1, "status": 1, "schedule": 1, "createdAt": 1, "updatedAt": 1, "organization": 1, "createdBy": 1})
+        assessments = []
+        
+        async for doc in cursor:
+            try:
+                # Use the same access check logic as other endpoints
+                try:
+                    _check_assessment_access(doc, current_user)
+                except HTTPException:
+                    # User doesn't have access - skip this assessment
+                    continue
+                
+                schedule = doc.get("schedule")
+                assessment_data = {
+                    "id": str(doc.get("_id")),
+                    "title": doc.get("title", ""),
+                    "status": doc.get("status", "draft"),
+                    "hasSchedule": bool(schedule),
+                    "scheduleStatus": None,
+                    "createdAt": doc.get("createdAt"),
+                    "updatedAt": doc.get("updatedAt"),
+                }
+                
+                if schedule:
+                    assessment_data["scheduleStatus"] = {
+                        "startTime": schedule.get("startTime"),
+                        "endTime": schedule.get("endTime"),
+                        "duration": schedule.get("duration"),
+                        "isActive": schedule.get("isActive", False),
+                    }
+                
+                # Serialize datetime and ObjectId fields recursively
+                assessments.append(convert_object_ids(assessment_data))
+            except HTTPException:
+                # Access denied - skip this assessment
+                continue
+            except Exception as exc:
+                logger.warning("Error processing assessment document: %s", exc)
+                # Skip this assessment if there's an error processing it
+                continue
+
+        return success_response("Assessments with schedule status fetched successfully", assessments)
+    except Exception as exc:
+        logger.exception("Error fetching assessments: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch assessments: {str(exc)}",
+        ) from exc
+
+
+@router.delete("/{assessment_id}")
+async def delete_assessment(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Delete an assessment. Only users with access to the assessment can delete it."""
+    try:
+        assessment = await _get_assessment(db, assessment_id)
+        _check_assessment_access(assessment, current_user)
+
+        # Delete the assessment
+        result = await db.assessments.delete_one({"_id": to_object_id(assessment_id)})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assessment not found or already deleted",
+            )
+
+        return success_response("Assessment deleted successfully", {"assessmentId": assessment_id})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error deleting assessment: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete assessment: {str(exc)}",
+        ) from exc
+
