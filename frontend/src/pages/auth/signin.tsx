@@ -192,7 +192,7 @@ export default function SignInPage({ providers }: SignInPageProps) {
   return (
     <div
       style={{
-        backgroundColor: "#faf9f7",
+        backgroundColor: "#f1dcba",
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
@@ -362,7 +362,6 @@ export default function SignInPage({ providers }: SignInPageProps) {
                 {googleProvider && (
                   <button
                     type="button"
-                    className="btn-secondary"
                     onClick={() => signIn("google", { callbackUrl })}
                     style={{
                       width: "100%",
@@ -372,6 +371,19 @@ export default function SignInPage({ providers }: SignInPageProps) {
                       alignItems: "center",
                       justifyContent: "center",
                       gap: "0.5rem",
+                      backgroundColor: "#ffffff",
+                      color: "#1a1625",
+                      border: "1px solid #e8e0d0",
+                      borderRadius: "0.5rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      transition: "background-color 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f8f8f8";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "#ffffff";
                     }}
                   >
                     <GoogleLogo />
@@ -381,7 +393,6 @@ export default function SignInPage({ providers }: SignInPageProps) {
                 {microsoftProvider && (
                   <button
                     type="button"
-                    className="btn-secondary"
                     onClick={() => signIn(microsoftProvider.id, { callbackUrl })}
                     style={{
                       width: "100%",
@@ -391,6 +402,19 @@ export default function SignInPage({ providers }: SignInPageProps) {
                       alignItems: "center",
                       justifyContent: "center",
                       gap: "0.5rem",
+                      backgroundColor: "#ffffff",
+                      color: "#1a1625",
+                      border: "1px solid #e8e0d0",
+                      borderRadius: "0.5rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      transition: "background-color 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f8f8f8";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "#ffffff";
                     }}
                   >
                     <MicrosoftLogo />

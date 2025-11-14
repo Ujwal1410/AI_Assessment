@@ -15,19 +15,26 @@ export default function HomePage() {
   }, [status, router]);
 
   return (
-    <main style={{ backgroundColor: "#faf9f7", minHeight: "100vh", color: "#1a1625" }}>
+    <main style={{ backgroundColor: "#f1dcba", minHeight: "100vh", color: "#1a1625" }}>
       <header className="enterprise-header">
         <div className="enterprise-header-content">
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginLeft: "-8rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginLeft: "-5rem" }}>
             <Image 
               src="/gisullogo.png" 
               alt="Gisul Logo" 
-              width={180} 
-              height={80} 
-              style={{ objectFit: "contain", height: "auto", maxHeight: "90px" }}
+              width={250} 
+              height={100} 
+              style={{ 
+                objectFit: "contain", 
+                height: "auto", 
+                maxHeight: "100px",
+                width: "auto",
+                maxWidth: "300px"
+              }}
               priority
             />
           </div>
+          
         </div>
       </header>
 
@@ -35,17 +42,17 @@ export default function HomePage() {
         style={{
           maxWidth: "1200px",
           margin: "0 auto",
-          padding: "5rem 1.5rem 4rem",
+          padding: "3rem 1rem 2rem",
           display: "grid",
-          gap: "4rem",
-          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+          gap: "2rem",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
           alignItems: "center",
         }}
       >
         <div>
           <h1
             style={{
-              fontSize: "3.5rem",
+              fontSize: "clamp(2rem, 5vw, 3.5rem)",
               lineHeight: 1.1,
               marginBottom: "1.5rem",
               fontWeight: 800,
@@ -59,9 +66,9 @@ export default function HomePage() {
           <p
             style={{
               color: "#4a4558",
-              fontSize: "1.125rem",
+              fontSize: "clamp(1rem, 2vw, 1.125rem)",
               lineHeight: 1.8,
-              marginBottom: "2.5rem",
+              marginBottom: "2rem",
               maxWidth: "600px",
             }}
           >
@@ -96,22 +103,10 @@ export default function HomePage() {
             </Link>
           </div>
         </div>
+       
       </section>
 
-      <footer
-        style={{
-          padding: "2.5rem 1.5rem",
-          borderTop: "1px solid #e8e0d0",
-          backgroundColor: "#ffffff",
-          color: "#6b6678",
-          textAlign: "center",
-          marginTop: "4rem",
-        }}
-      >
-        <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-          © {new Date().getFullYear()} AI Assessment Platform. All rights reserved.
-        </div>
-      </footer>
+     
     </main>
   );
 }

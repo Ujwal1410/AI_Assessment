@@ -185,7 +185,7 @@ export default function SignupPage({ providers }: SignupPageProps) {
   return (
     <div
       style={{
-        backgroundColor: "#faf9f7",
+        backgroundColor: "#f1dcba",
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
@@ -196,11 +196,11 @@ export default function SignupPage({ providers }: SignupPageProps) {
       <div style={{ width: "100%", maxWidth: "420px" }}>
        
 
-        <div className="card" style={{ padding: "1.5rem" }}>
+        <div className="card" style={{ padding: "1rem", maxHeight: "calc(100vh - 2rem)", overflowY: "auto" }}>
           {!showVerification ? (
             <>
               <form onSubmit={onSubmit} style={{ margin: 0 }}>
-                <label htmlFor="name" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                <label htmlFor="name" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.25rem" }}>
                   Full Name
                 </label>
                 <input
@@ -209,10 +209,10 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   required
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                  style={{ marginBottom: "0.5rem", padding: "0.5rem 0.75rem", fontSize: "0.875rem" }}
                 />
 
-                <label htmlFor="email" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                <label htmlFor="email" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.25rem" }}>
                   Work Email
                 </label>
                 <input
@@ -221,10 +221,10 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   required
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                  style={{ marginBottom: "0.5rem", padding: "0.5rem 0.75rem", fontSize: "0.875rem" }}
                 />
 
-                <label htmlFor="password" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                <label htmlFor="password" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.25rem" }}>
                   Password
                 </label>
                 <input
@@ -233,10 +233,10 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   required
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                  style={{ marginBottom: "0.5rem", padding: "0.5rem 0.75rem", fontSize: "0.875rem" }}
                 />
 
-                <label htmlFor="confirmPassword" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                <label htmlFor="confirmPassword" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.25rem" }}>
                   Confirm Password
                 </label>
                 <input
@@ -245,13 +245,13 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   required
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
-                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                  style={{ marginBottom: "0.5rem", padding: "0.5rem 0.75rem", fontSize: "0.875rem" }}
                 />
 
                 {message && (
                   <div
                     className={`alert ${message.type === "success" ? "alert-success" : "alert-error"}`}
-                    style={{ marginTop: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", fontSize: "0.8125rem" }}
+                    style={{ marginTop: "0.5rem", marginBottom: "0.5rem", padding: "0.5rem", fontSize: "0.8125rem" }}
                   >
                     {message.text}
                   </div>
@@ -261,30 +261,42 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   type="submit"
                   className="btn-primary"
                   disabled={loading}
-                  style={{ width: "100%", marginTop: "0.5rem", padding: "0.75rem", fontSize: "0.875rem" }}
+                  style={{ width: "100%", marginTop: "0.25rem", padding: "0.625rem", fontSize: "0.875rem" }}
                 >
                   {loading ? "Submitting..." : "Sign Up"}
                 </button>
               </form>
 
-              <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "1px solid #e8e0d0" }}>
-                <p style={{ color: "#6b6678", marginBottom: "0.75rem", fontSize: "0.8125rem", textAlign: "center" }}>
+              <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid #e8e0d0" }}>
+                <p style={{ color: "#6b6678", marginBottom: "0.5rem", fontSize: "0.8125rem", textAlign: "center" }}>
                   Or continue with
                 </p>
                 <div style={{ display: "flex", gap: "0.5rem", flexDirection: "column" }}>
                   {googleProvider && (
                     <button
                       type="button"
-                      className="btn-secondary"
                       onClick={() => signIn("google")}
                       style={{
                         width: "100%",
-                        padding: "0.625rem 0.75rem",
-                        fontSize: "0.875rem",
+                        padding: "0.5rem 0.75rem",
+                        fontSize: "0.8125rem",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                         gap: "0.5rem",
+                        backgroundColor: "#ffffff",
+                        color: "#1a1625",
+                        border: "1px solid #e8e0d0",
+                        borderRadius: "0.5rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "background-color 0.2s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "#f8f8f8";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "#ffffff";
                       }}
                     >
                       <GoogleLogo />
@@ -294,16 +306,28 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   {microsoftProvider && (
                     <button
                       type="button"
-                      className="btn-secondary"
                       onClick={() => signIn(microsoftProvider.id)}
                       style={{
                         width: "100%",
-                        padding: "0.625rem 0.75rem",
-                        fontSize: "0.875rem",
+                        padding: "0.5rem 0.75rem",
+                        fontSize: "0.8125rem",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                         gap: "0.5rem",
+                        backgroundColor: "#ffffff",
+                        color: "#1a1625",
+                        border: "1px solid #e8e0d0",
+                        borderRadius: "0.5rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "background-color 0.2s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "#f8f8f8";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "#ffffff";
                       }}
                     >
                       <MicrosoftLogo />
@@ -315,14 +339,14 @@ export default function SignupPage({ providers }: SignupPageProps) {
             </>
           ) : (
             <div>
-              <h2 style={{ marginTop: 0, marginBottom: "0.75rem", fontSize: "1.25rem", fontWeight: 600 }}>
+              <h2 style={{ marginTop: 0, marginBottom: "0.5rem", fontSize: "1.125rem", fontWeight: 600 }}>
                 Email Verification Required
               </h2>
-              <p style={{ color: "#6b6678", marginBottom: "1rem", fontSize: "0.8125rem" }}>
+              <p style={{ color: "#6b6678", marginBottom: "0.75rem", fontSize: "0.8125rem" }}>
                 We&apos;ve sent a verification code to <strong>{email}</strong>. Please enter the code below.
               </p>
 
-              <label htmlFor="verificationCode" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+              <label htmlFor="verificationCode" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.25rem" }}>
                 Verification Code
               </label>
               <input
@@ -340,15 +364,15 @@ export default function SignupPage({ providers }: SignupPageProps) {
                 }}
                 style={{
                   textAlign: "center",
-                  fontSize: "1.125rem",
+                  fontSize: "1rem",
                   letterSpacing: "0.5rem",
                   marginBottom: "0.5rem",
-                  padding: "0.625rem 0.75rem",
+                  padding: "0.5rem 0.75rem",
                 }}
               />
 
               {timeRemaining !== null && (
-                <div style={{ marginTop: "0.5rem", textAlign: "center", marginBottom: "0.75rem" }}>
+                <div style={{ marginTop: "0.25rem", textAlign: "center", marginBottom: "0.5rem" }}>
                   {codeExpired ? (
                     <p style={{ color: "#ef4444", fontSize: "0.75rem", fontWeight: 500 }}>
                       Code expired. Please request a new code.
@@ -367,19 +391,19 @@ export default function SignupPage({ providers }: SignupPageProps) {
               {message && (
                 <div
                   className={`alert ${message.type === "success" ? "alert-success" : "alert-error"}`}
-                  style={{ marginTop: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", fontSize: "0.8125rem" }}
+                  style={{ marginTop: "0.5rem", marginBottom: "0.5rem", padding: "0.5rem", fontSize: "0.8125rem" }}
                 >
                   {message.text}
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
                 <button
                   type="button"
                   className="btn-primary"
                   onClick={handleVerifyCode}
                   disabled={verifyingCode || !verificationCode}
-                  style={{ flex: 1, padding: "0.75rem", fontSize: "0.875rem" }}
+                  style={{ flex: 1, padding: "0.625rem", fontSize: "0.875rem" }}
                 >
                   {verifyingCode ? "Verifying..." : "Verify Code"}
                 </button>
@@ -388,7 +412,7 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   className="btn-secondary"
                   onClick={handleSendVerificationCode}
                   disabled={sendingCode}
-                  style={{ padding: "0.75rem", fontSize: "0.875rem" }}
+                  style={{ padding: "0.625rem", fontSize: "0.875rem" }}
                 >
                   {sendingCode ? "Sending..." : "Resend"}
                 </button>
@@ -398,7 +422,7 @@ export default function SignupPage({ providers }: SignupPageProps) {
         </div>
 
         {!showVerification && (
-          <div style={{ marginTop: "1rem", textAlign: "center", color: "#6b6678" }}>
+          <div style={{ marginTop: "0.75rem", textAlign: "center", color: "#6b6678" }}>
             <p style={{ fontSize: "0.8125rem", margin: 0 }}>
               Already have an account?{" "}
               <Link href="/auth/signin" style={{ color: "#6953a3", fontWeight: 600 }}>

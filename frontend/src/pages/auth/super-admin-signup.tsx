@@ -144,13 +144,6 @@ export default function SuperAdminSignupPage() {
 
   return (
     <div className="container" style={{ maxWidth: "560px" }}>
-      <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-        <Image src="/logo.svg" alt="AI Assessment" width={72} height={72} />
-        <h1>Create Super Admin</h1>
-        <p style={{ color: "#475569" }}>
-          Set up the first super admin account to manage the entire platform.
-        </p>
-      </div>
 
       <div className="card">
         {!showVerification ? (

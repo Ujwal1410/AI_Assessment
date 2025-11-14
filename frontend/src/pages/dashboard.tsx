@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
+import Image from "next/image";
 import axios from "axios";
 
 interface Assessment {
@@ -74,7 +75,7 @@ export default function DashboardPage() {
       case "ready":
         return { bg: "#dcfce7", text: "#166534", border: "#10b981" };
       case "draft":
-        return { bg: "rgba(244, 228, 3, 0.2)", text: "#8b7a00", border: "#f4e403" };
+        return { bg: "rgba(105, 83, 163, 0.1)", text: "#6953a3", border: "#6953a3" };
       case "scheduled":
         return { bg: "rgba(105, 83, 163, 0.1)", text: "#6953a3", border: "#6953a3" };
       case "active":
@@ -98,16 +99,27 @@ export default function DashboardPage() {
   };
 
   return (
-    <div style={{ backgroundColor: "#faf9f7", minHeight: "100vh" }}>
+    <div style={{ backgroundColor: "#f1dcba", minHeight: "100vh" }}>
       <header className="enterprise-header">
         <div className="enterprise-header-content">
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <span style={{ fontSize: "1.25rem", fontWeight: 700, letterSpacing: "-0.02em" }}>
-              AI Assessment Platform
-            </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem", flex: 1, minWidth: 0, marginLeft: "-5rem" }}>
+            <Image 
+              src="/gisullogo.png" 
+              alt="Gisul Logo" 
+              width={250} 
+              height={100} 
+              style={{ 
+                objectFit: "contain", 
+                height: "auto", 
+                maxHeight: "100px",
+                width: "auto",
+                maxWidth: "200px"
+              }}
+              priority
+            />
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <span style={{ fontSize: "0.875rem", opacity: 0.9 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
+            <span className="mobile-hidden" style={{ fontSize: "0.875rem", opacity: 0.9 }}>
               {session?.user?.email}
             </span>
             <button
@@ -116,11 +128,12 @@ export default function DashboardPage() {
               className="btn-secondary"
               style={{
                 marginTop: 0,
-                padding: "0.625rem 1.25rem",
-                fontSize: "0.875rem",
+                padding: "0.5rem 1rem",
+                fontSize: "0.8125rem",
                 backgroundColor: "rgba(255, 255, 255, 0.2)",
                 borderColor: "rgba(255, 255, 255, 0.3)",
                 color: "#ffffff",
+                whiteSpace: "nowrap",
               }}
             >
               Sign Out
@@ -131,20 +144,20 @@ export default function DashboardPage() {
 
       <div className="container">
         <div className="card" style={{ marginBottom: "2rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div>
-              <h1 style={{ margin: 0, marginBottom: "0.5rem", fontSize: "2rem", color: "#1a1625", fontWeight: 700 }}>
+              <h1 style={{ margin: 0, marginBottom: "0.5rem", fontSize: "clamp(1.5rem, 4vw, 2rem)", color: "#1a1625", fontWeight: 700 }}>
                 Assessments Dashboard
               </h1>
-              <p style={{ color: "#6b6678", margin: 0, fontSize: "0.9375rem" }}>
-                You are signed in as <strong>{session?.user?.email}</strong> with role{" "}
-                <span className="badge badge-purple" style={{ marginLeft: "0.5rem" }}>
+              <p style={{ color: "#6b6678", margin: 0, fontSize: "0.875rem" }}>
+                Signed in as <strong>{session?.user?.email}</strong> • Role:{" "}
+                <span className="badge badge-purple" style={{ marginLeft: "0.25rem" }}>
                   {role}
                 </span>
               </p>
             </div>
-            <Link href="/assessments/create">
-              <button type="button" className="btn-primary" style={{ marginTop: 0 }}>
+            <Link href="/assessments/create" style={{ width: "100%" }}>
+              <button type="button" className="btn-primary" style={{ marginTop: 0, width: "100%" }}>
                 + Create New Assessment
               </button>
             </Link>
@@ -213,8 +226,8 @@ export default function DashboardPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-                gap: "1.5rem",
+                gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
+                gap: "1rem",
               }}
             >
               {assessments.map((assessment) => {
@@ -278,7 +291,7 @@ export default function DashboardPage() {
                         </div>
                       )}
                     </div>
-                    <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", paddingTop: "1rem", borderTop: "1px solid #f1dcba" }}>
+                    <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem", paddingTop: "1rem", borderTop: "1px solid #f1dcba" }}>
                       <button
                         type="button"
                         className="btn-secondary"
@@ -286,7 +299,7 @@ export default function DashboardPage() {
                           fontSize: "0.875rem",
                           padding: "0.5rem 1rem",
                           marginTop: 0,
-                          flex: 1,
+                          width: "100%",
                         }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -306,7 +319,7 @@ export default function DashboardPage() {
                           borderRadius: "0.375rem",
                           cursor: "pointer",
                           transition: "background-color 0.2s",
-                          flex: 1,
+                          width: "100%",
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.backgroundColor = "#dc2626";

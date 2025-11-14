@@ -196,7 +196,7 @@ export default function ConfigureTopicsPage() {
   }
 
   return (
-    <div style={{ backgroundColor: "#faf9f7", minHeight: "100vh" }}>
+    <div style={{ backgroundColor: "#f1dcba", minHeight: "100vh" }}>
       <div className="container">
         <div className="card">
           <div style={{ marginBottom: "2rem" }}>
@@ -219,31 +219,31 @@ export default function ConfigureTopicsPage() {
           {/* Add Custom Topic */}
           <div style={{ marginBottom: "2rem", padding: "1.5rem", backgroundColor: "#f1dcba", borderRadius: "0.75rem", border: "1px solid #e8d0a0" }}>
             <h3 style={{ marginBottom: "1rem", fontSize: "1.125rem", color: "#1a1625", fontWeight: 600 }}>Add Custom Topic</h3>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <input
-              type="text"
-              value={newTopic}
-              onChange={(e) => setNewTopic(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddCustomTopic();
-                }
-              }}
-              placeholder="Enter topic name"
-              style={{
-                flex: 1,
-                padding: "0.75rem",
-                border: "1px solid #e2e8f0",
-                borderRadius: "0.5rem",
-                fontSize: "1rem",
-              }}
-            />
-            <button type="button" onClick={handleAddCustomTopic} className="btn-secondary" disabled={!newTopic.trim()}>
-              Add Topic
-            </button>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input
+                type="text"
+                value={newTopic}
+                onChange={(e) => setNewTopic(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddCustomTopic();
+                  }
+                }}
+                placeholder="Enter topic name"
+                style={{
+                  flex: 1,
+                  padding: "0.75rem",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "0.5rem",
+                  fontSize: "1rem",
+                }}
+              />
+              <button type="button" onClick={handleAddCustomTopic} className="btn-secondary" disabled={!newTopic.trim()} style={{ marginTop: 0, whiteSpace: "nowrap", padding: "0.75rem 1.5rem" }}>
+                Add Topic
+              </button>
+            </div>
           </div>
-        </div>
 
         {/* Topics List - Grouped by Category */}
         <div style={{ marginBottom: "2rem" }}>
@@ -299,7 +299,7 @@ export default function ConfigureTopicsPage() {
                   </button>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
                   <div>
                     <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500, color: "#1e293b" }}>
                       Number of Questions
@@ -461,7 +461,7 @@ export default function ConfigureTopicsPage() {
                           </button>
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
                           <div>
                             <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500, color: "#1e293b" }}>
                               Number of Questions
@@ -578,18 +578,18 @@ export default function ConfigureTopicsPage() {
           )}
         </div>
 
-          <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", paddingTop: "2rem", borderTop: "1px solid #e8e0d0" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "2rem", paddingTop: "2rem", borderTop: "1px solid #e8e0d0" }}>
             <button
               type="button"
               onClick={handleSaveAndContinue}
               className="btn-primary"
               disabled={saving || topics.length === 0}
-              style={{ marginTop: 0 }}
+              style={{ marginTop: 0, width: "100%" }}
             >
               {saving ? "Saving..." : "Save & Generate Questions"}
             </button>
-            <Link href="/dashboard">
-              <button type="button" className="btn-secondary" style={{ marginTop: 0 }}>
+            <Link href="/dashboard" style={{ width: "100%" }}>
+              <button type="button" className="btn-secondary" style={{ marginTop: 0, width: "100%" }}>
                 Cancel
               </button>
             </Link>

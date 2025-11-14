@@ -194,18 +194,19 @@ export default function CreateAssessmentPage() {
   const showAptitudeSection = assessmentTypes.includes("aptitude");
 
   return (
-    <div className="container">
-      <div className="card">
-        <div style={{ marginBottom: "2rem" }}>
-          <Link href="/dashboard" style={{ color: "#3b82f6", textDecoration: "none" }}>
-            ← Back to Dashboard
-          </Link>
-        </div>
+    <div style={{ backgroundColor: "#f1dcba", minHeight: "100vh" }}>
+      <div className="container">
+        <div className="card">
+          <div style={{ marginBottom: "2rem" }}>
+            <Link href="/dashboard" style={{ color: "#6953a3", textDecoration: "none", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+              <span>←</span> Back to Dashboard
+            </Link>
+          </div>
 
-        <h1 style={{ marginBottom: "0.5rem" }}>Create New Assessment</h1>
-        <p style={{ color: "#475569", marginBottom: "2rem" }}>
-          Choose the type of assessment you want to create. You can select Aptitude, Technical, or both.
-        </p>
+          <h1 style={{ marginBottom: "0.5rem", fontSize: "clamp(1.5rem, 4vw, 2rem)", color: "#1a1625", fontWeight: 700 }}>Create New Assessment</h1>
+          <p style={{ color: "#6b6678", marginBottom: "2rem", fontSize: "0.9375rem" }}>
+            Choose the type of assessment you want to create. You can select Aptitude, Technical, or both.
+          </p>
 
         {error && (
           <div className="alert alert-error" style={{ marginBottom: "1.5rem" }}>
@@ -219,7 +220,7 @@ export default function CreateAssessmentPage() {
             <label style={{ display: "block", marginBottom: "1rem", fontWeight: 600, color: "#1e293b", fontSize: "1.125rem" }}>
               Assessment Type *
             </label>
-            <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
               <label
                 style={{
                   display: "flex",
@@ -297,7 +298,7 @@ export default function CreateAssessmentPage() {
                     </div>
 
                     {categoryState.enabled && (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginLeft: "2rem" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem", marginLeft: "0", marginTop: "1rem" }}>
                         <div>
                           <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500, color: "#475569", fontSize: "0.875rem" }}>
                             Difficulty
@@ -509,6 +510,7 @@ export default function CreateAssessmentPage() {
                     onClick={handleAddSkill}
                     className="btn-secondary"
                     disabled={!currentSkill.trim()}
+                    style={{ marginTop: 0, whiteSpace: "nowrap", padding: "0.75rem 1.5rem" }}
                   >
                     Add
                   </button>
@@ -554,21 +556,23 @@ export default function CreateAssessmentPage() {
             </div>
           )}
 
-          <div style={{ display: "flex", gap: "1rem", marginTop: "2rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "2rem" }}>
             <button
               type="submit"
               className="btn-primary"
               disabled={loading || assessmentTypes.length === 0}
+              style={{ width: "100%", marginTop: 0 }}
             >
               {loading ? "Generating Topics..." : "Generate Topics"}
             </button>
-            <Link href="/dashboard">
-              <button type="button" className="btn-secondary">
+            <Link href="/dashboard" style={{ width: "100%" }}>
+              <button type="button" className="btn-secondary" style={{ width: "100%", marginTop: 0 }}>
                 Cancel
               </button>
             </Link>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );

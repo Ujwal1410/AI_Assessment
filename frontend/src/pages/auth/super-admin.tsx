@@ -156,11 +156,7 @@ export default function SuperAdminAuthPage() {
 
   return (
     <div className="container" style={{ maxWidth: "480px" }}>
-      <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-        <Image src="/logo.svg" alt="AI Assessment" width={72} height={72} />
-        <h1>Super Admin Sign-In</h1>
-        <p style={{ color: "#475569" }}>Access global administration tools.</p>
-      </div>
+     
 
       <div className="card">
         {!showVerification ? (

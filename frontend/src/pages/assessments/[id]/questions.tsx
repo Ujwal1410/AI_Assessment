@@ -218,7 +218,7 @@ export default function QuestionsPage() {
   }
 
   return (
-    <div style={{ backgroundColor: "#faf9f7", minHeight: "100vh" }}>
+    <div style={{ backgroundColor: "#f1dcba", minHeight: "100vh" }}>
       <div className="container">
         <div className="card">
           <div style={{ marginBottom: "2rem" }}>
@@ -227,10 +227,10 @@ export default function QuestionsPage() {
             </Link>
           </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "1.5rem" }}>
           <div>
-            <h1 style={{ margin: 0, marginBottom: "0.5rem", fontSize: "2rem", color: "#1a1625", fontWeight: 700 }}>Generated Questions</h1>
-            <p style={{ color: "#64748b", margin: 0, fontSize: "1rem" }}>
+            <h1 style={{ margin: 0, marginBottom: "0.5rem", fontSize: "clamp(1.5rem, 4vw, 2rem)", color: "#1a1625", fontWeight: 700 }}>Generated Questions</h1>
+            <p style={{ color: "#64748b", margin: 0, fontSize: "0.9375rem" }}>
               {hasQuestions
                 ? `${totalQuestions} question${totalQuestions !== 1 ? "s" : ""} across ${topics.length} topic${topics.length !== 1 ? "s" : ""}`
                 : "Generate questions for your configured topics"}
@@ -248,7 +248,10 @@ export default function QuestionsPage() {
                 fontWeight: 600,
                 display: "flex",
                 alignItems: "center",
-                gap: "0.5rem"
+                justifyContent: "center",
+                gap: "0.5rem",
+                width: "100%",
+                marginTop: 0
               }}
             >
               {generating ? (
@@ -302,7 +305,7 @@ export default function QuestionsPage() {
               <span style={{ fontSize: "1.25rem" }}>📊</span>
               <strong style={{ color: "#0c4a6e" }}>Generation Summary</strong>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "1rem", marginTop: "0.75rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 120px), 1fr))", gap: "1rem", marginTop: "0.75rem" }}>
               <div>
                 <div style={{ fontSize: "0.875rem", color: "#64748b" }}>Total Topics</div>
                 <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0c4a6e" }}>{generationSummary.totalTopics}</div>
@@ -614,20 +617,20 @@ export default function QuestionsPage() {
               );
             })}
 
-            <div style={{ marginTop: "3rem", paddingTop: "2rem", borderTop: "2px solid #e2e8f0" }}>
+            <div style={{ marginTop: "2rem", paddingTop: "2rem", borderTop: "2px solid #e2e8f0" }}>
               {!showFinalize ? (
                 <div style={{ textAlign: "center" }}>
                   <button
                     type="button"
                     onClick={() => setShowFinalize(true)}
                     className="btn-primary"
-                    style={{ fontSize: "1rem", padding: "0.875rem 2rem", fontWeight: 600 }}
+                    style={{ fontSize: "1rem", padding: "0.875rem 2rem", fontWeight: 600, width: "100%" }}
                   >
                     Finalize Assessment
                   </button>
                 </div>
               ) : (
-                <div style={{ backgroundColor: "#f8fafc", padding: "2rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0" }}>
+                <div style={{ backgroundColor: "#f8fafc", padding: "1.5rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0" }}>
                   <h3 style={{ marginBottom: "1.5rem", fontSize: "1.25rem", color: "#0f172a" }}>Finalize Assessment</h3>
                   <div style={{ marginBottom: "1.5rem" }}>
                     <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, color: "#1e293b" }}>
@@ -668,13 +671,13 @@ export default function QuestionsPage() {
                       }}
                     />
                   </div>
-                  <div style={{ display: "flex", gap: "1rem" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                     <button
                       type="button"
                       onClick={handleFinalize}
                       className="btn-primary"
                       disabled={saving || !finalTitle.trim()}
-                      style={{ flex: 1 }}
+                      style={{ width: "100%" }}
                     >
                       {saving ? "Finalizing..." : "Finalize & Complete"}
                     </button>
@@ -683,6 +686,7 @@ export default function QuestionsPage() {
                       onClick={() => setShowFinalize(false)}
                       className="btn-secondary"
                       disabled={saving}
+                      style={{ width: "100%" }}
                     >
                       Cancel
                     </button>
