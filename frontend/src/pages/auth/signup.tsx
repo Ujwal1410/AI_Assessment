@@ -16,6 +16,40 @@ interface SignupPageProps {
   providers: Awaited<ReturnType<typeof getProviders>>;
 }
 
+// Google Logo SVG
+const GoogleLogo = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+    <g fill="#000" fillRule="evenodd">
+      <path
+        d="M9 3.48c1.69 0 2.83.73 3.48 1.34l2.54-2.48C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l2.91 2.26C4.6 5.05 6.62 3.48 9 3.48z"
+        fill="#EA4335"
+      />
+      <path
+        d="M17.64 9.2c0-.74-.06-1.28-.19-1.84H9v3.34h4.96c-.21 1.18-.84 2.08-1.79 2.71l2.85 2.2c2.01-1.86 3.17-4.57 3.17-7.41z"
+        fill="#4285F4"
+      />
+      <path
+        d="M3.88 10.78A5.54 5.54 0 0 1 3.58 9c0-.62.11-1.22.29-1.78L.96 4.96A9.008 9.008 0 0 0 0 9c0 1.45.35 2.82.96 4.04l2.92-2.26z"
+        fill="#FBBC05"
+      />
+      <path
+        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.85-2.2c-.76.53-1.78.9-3.11.9-2.38 0-4.4-1.57-5.12-3.74L.96 13.04C2.45 15.98 5.48 18 9 18z"
+        fill="#34A853"
+      />
+    </g>
+  </svg>
+);
+
+// Microsoft Logo SVG
+const MicrosoftLogo = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#F25022" d="M0 0h8.4v8.4H0z" />
+    <path fill="#00A4EF" d="M9.6 0H18v8.4H9.6z" />
+    <path fill="#7FBA00" d="M0 9.6h8.4V18H0z" />
+    <path fill="#FFB900" d="M9.6 9.6H18V18H9.6z" />
+  </svg>
+);
+
 export default function SignupPage({ providers }: SignupPageProps) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -69,7 +103,6 @@ export default function SignupPage({ providers }: SignupPageProps) {
     try {
       const response = await axios.post("/api/auth/send-verification-code", { email });
       setMessage({ type: "success", text: "Verification code sent successfully" });
-      // Set countdown timer (1 minute = 60 seconds)
       setTimeRemaining(60);
     } catch (err: any) {
       console.error("Error sending verification code:", err);
@@ -98,23 +131,18 @@ export default function SignupPage({ providers }: SignupPageProps) {
         email,
         code: verificationCode,
       });
-      // Verification successful, redirect to sign in page
       setMessage({ type: "success", text: "Email verified successfully! Redirecting to sign in..." });
       setTimeout(() => {
         router.push("/auth/signin");
       }, 1500);
     } catch (err: any) {
-      // Extract specific error message
       let errorMessage = err.response?.data?.message || err.message || "Invalid verification code";
       
-      // Provide more specific error messages
-      // Only set codeExpired if the error explicitly says "expired"
       if (errorMessage.toLowerCase().includes("expired") && !errorMessage.toLowerCase().includes("invalid")) {
         errorMessage = "Verification code has expired. Please request a new code.";
         setCodeExpired(true);
       } else if (errorMessage.includes("Invalid") || errorMessage.includes("invalid") || errorMessage.includes("incorrect")) {
         errorMessage = "Invalid verification code. Please check and try again.";
-        // Don't set codeExpired for invalid codes - only for expired codes
       } else if (errorMessage.includes("not found") || errorMessage.includes("User not found")) {
         errorMessage = "User not found. Please sign up again.";
       }
@@ -140,13 +168,11 @@ export default function SignupPage({ providers }: SignupPageProps) {
         email,
         password,
       });
-      // Signup successful, show verification screen
       setShowVerification(true);
       setMessage({
         type: "success",
         text: "Please check your email for verification code.",
       });
-      // Set countdown timer (1 minute = 60 seconds)
       setTimeRemaining(60);
       setCodeExpired(false);
     } catch (error: any) {
@@ -157,170 +183,230 @@ export default function SignupPage({ providers }: SignupPageProps) {
   };
 
   return (
-    <div className="container" style={{ maxWidth: "560px" }}>
-      <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-        <Image src="/logo.svg" alt="AI Assessment" width={72} height={72} />
-        <h1>Create Your Account</h1>
-        <p style={{ color: "#475569" }}>
-          Sign up with your work email to request access to the AI Assessment Platform.
-        </p>
-      </div>
+    <div
+      style={{
+        backgroundColor: "#faf9f7",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1rem",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: "420px" }}>
+       
 
-      <div className="card">
-        {!showVerification ? (
-          <>
-            <form onSubmit={onSubmit}>
-              <label htmlFor="name">Full Name</label>
+        <div className="card" style={{ padding: "1.5rem" }}>
+          {!showVerification ? (
+            <>
+              <form onSubmit={onSubmit} style={{ margin: 0 }}>
+                <label htmlFor="name" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                  Full Name
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                />
+
+                <label htmlFor="email" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                  Work Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                />
+
+                <label htmlFor="password" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                />
+
+                <label htmlFor="confirmPassword" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                  Confirm Password
+                </label>
+                <input
+                  id="confirmPassword"
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  style={{ marginBottom: "0.75rem", padding: "0.625rem 0.75rem", fontSize: "0.875rem" }}
+                />
+
+                {message && (
+                  <div
+                    className={`alert ${message.type === "success" ? "alert-success" : "alert-error"}`}
+                    style={{ marginTop: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", fontSize: "0.8125rem" }}
+                  >
+                    {message.text}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={loading}
+                  style={{ width: "100%", marginTop: "0.5rem", padding: "0.75rem", fontSize: "0.875rem" }}
+                >
+                  {loading ? "Submitting..." : "Sign Up"}
+                </button>
+              </form>
+
+              <div style={{ marginTop: "1.25rem", paddingTop: "1.25rem", borderTop: "1px solid #e8e0d0" }}>
+                <p style={{ color: "#6b6678", marginBottom: "0.75rem", fontSize: "0.8125rem", textAlign: "center" }}>
+                  Or continue with
+                </p>
+                <div style={{ display: "flex", gap: "0.5rem", flexDirection: "column" }}>
+                  {googleProvider && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => signIn("google")}
+                      style={{
+                        width: "100%",
+                        padding: "0.625rem 0.75rem",
+                        fontSize: "0.875rem",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <GoogleLogo />
+                      Continue with Google
+                    </button>
+                  )}
+                  {microsoftProvider && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => signIn(microsoftProvider.id)}
+                      style={{
+                        width: "100%",
+                        padding: "0.625rem 0.75rem",
+                        fontSize: "0.875rem",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <MicrosoftLogo />
+                      Continue with Microsoft
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div>
+              <h2 style={{ marginTop: 0, marginBottom: "0.75rem", fontSize: "1.25rem", fontWeight: 600 }}>
+                Email Verification Required
+              </h2>
+              <p style={{ color: "#6b6678", marginBottom: "1rem", fontSize: "0.8125rem" }}>
+                We&apos;ve sent a verification code to <strong>{email}</strong>. Please enter the code below.
+              </p>
+
+              <label htmlFor="verificationCode" style={{ fontSize: "0.8125rem", marginTop: 0, marginBottom: "0.375rem" }}>
+                Verification Code
+              </label>
               <input
-                id="name"
+                id="verificationCode"
                 type="text"
                 required
-                value={name}
-                onChange={(event) => setName(event.target.value)}
+                maxLength={10}
+                placeholder="Enter 6-digit code"
+                value={verificationCode}
+                onChange={(event) => {
+                  setVerificationCode(event.target.value.replace(/\D/g, ""));
+                  if (codeExpired) {
+                    setCodeExpired(false);
+                  }
+                }}
+                style={{
+                  textAlign: "center",
+                  fontSize: "1.125rem",
+                  letterSpacing: "0.5rem",
+                  marginBottom: "0.5rem",
+                  padding: "0.625rem 0.75rem",
+                }}
               />
 
-              <label htmlFor="email">Work Email</label>
-              <input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
+              {timeRemaining !== null && (
+                <div style={{ marginTop: "0.5rem", textAlign: "center", marginBottom: "0.75rem" }}>
+                  {codeExpired ? (
+                    <p style={{ color: "#ef4444", fontSize: "0.75rem", fontWeight: 500 }}>
+                      Code expired. Please request a new code.
+                    </p>
+                  ) : (
+                    <p style={{ color: "#6b6678", fontSize: "0.75rem" }}>
+                      Code expires in{" "}
+                      <strong style={{ color: timeRemaining < 60 ? "#ef4444" : "#6953a3" }}>
+                        {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, "0")}
+                      </strong>
+                    </p>
+                  )}
+                </div>
+              )}
 
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
+              {message && (
+                <div
+                  className={`alert ${message.type === "success" ? "alert-success" : "alert-error"}`}
+                  style={{ marginTop: "0.75rem", marginBottom: "0.75rem", padding: "0.75rem", fontSize: "0.8125rem" }}
+                >
+                  {message.text}
+                </div>
+              )}
 
-              <label htmlFor="confirmPassword">Confirm Password</label>
-              <input
-                id="confirmPassword"
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-              />
-
-              <button type="submit" className="btn-primary" disabled={loading}>
-                {loading ? "Submitting..." : "Sign Up"}
-              </button>
-            </form>
-
-            {message && (
-              <div className={`alert ${message.type === "success" ? "alert-success" : "alert-error"}`}>
-                {message.text}
-              </div>
-            )}
-
-            <div style={{ marginTop: "1.5rem" }}>
-              <p style={{ color: "#475569", marginBottom: "0.75rem" }}>Or continue with</p>
-              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                {googleProvider && (
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    style={{ flex: "1 1 200px" }}
-                    onClick={() => signIn("google")}
-                  >
-                    Continue with Google
-                  </button>
-                )}
-                {microsoftProvider && (
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    style={{ flex: "1 1 200px" }}
-                    onClick={() => signIn(microsoftProvider.id)}
-                  >
-                    Continue with Microsoft
-                  </button>
-                )}
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleVerifyCode}
+                  disabled={verifyingCode || !verificationCode}
+                  style={{ flex: 1, padding: "0.75rem", fontSize: "0.875rem" }}
+                >
+                  {verifyingCode ? "Verifying..." : "Verify Code"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleSendVerificationCode}
+                  disabled={sendingCode}
+                  style={{ padding: "0.75rem", fontSize: "0.875rem" }}
+                >
+                  {sendingCode ? "Sending..." : "Resend"}
+                </button>
               </div>
             </div>
-          </>
-        ) : (
-          <div>
-            <h2 style={{ marginTop: 0, marginBottom: "1rem" }}>Email Verification Required</h2>
-            <p style={{ color: "#475569", marginBottom: "1.5rem" }}>
-              We&apos;ve sent a verification code to <strong>{email}</strong>. Please enter the code below to verify your email.
+          )}
+        </div>
+
+        {!showVerification && (
+          <div style={{ marginTop: "1rem", textAlign: "center", color: "#6b6678" }}>
+            <p style={{ fontSize: "0.8125rem", margin: 0 }}>
+              Already have an account?{" "}
+              <Link href="/auth/signin" style={{ color: "#6953a3", fontWeight: 600 }}>
+                Sign in
+              </Link>
             </p>
-
-            <label htmlFor="verificationCode">Verification Code</label>
-            <input
-              id="verificationCode"
-              type="text"
-              required
-              maxLength={10}
-              placeholder="Enter 6-digit code"
-              value={verificationCode}
-              onChange={(event) => {
-                setVerificationCode(event.target.value.replace(/\D/g, ""));
-                // Reset codeExpired when user starts typing a new code
-                if (codeExpired) {
-                  setCodeExpired(false);
-                }
-              }}
-              style={{ textAlign: "center", fontSize: "1.25rem", letterSpacing: "0.5rem" }}
-            />
-            
-            {timeRemaining !== null && (
-              <div style={{ marginTop: "0.75rem", textAlign: "center" }}>
-                {codeExpired ? (
-                  <p style={{ color: "#ef4444", fontSize: "0.875rem", fontWeight: 500 }}>
-                    Code expired. Please request a new code.
-                  </p>
-                ) : (
-                  <p style={{ color: "#475569", fontSize: "0.875rem" }}>
-                    Code expires in{" "}
-                    <strong style={{ color: timeRemaining < 60 ? "#ef4444" : "#2563eb" }}>
-                      {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, "0")}
-                    </strong>
-                  </p>
-                )}
-              </div>
-            )}
-
-            {message && (
-              <div className={`alert ${message.type === "success" ? "alert-success" : "alert-error"}`} style={{ marginTop: "1rem" }}>
-                {message.text}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.5rem" }}>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleVerifyCode}
-                disabled={verifyingCode || !verificationCode}
-                style={{ flex: 1 }}
-              >
-                {verifyingCode ? "Verifying..." : "Verify Code"}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleSendVerificationCode}
-                disabled={sendingCode}
-              >
-                {sendingCode ? "Sending..." : "Resend Code"}
-              </button>
-            </div>
           </div>
         )}
-      </div>
-
-      <div style={{ marginTop: "1.5rem", textAlign: "center", color: "#475569" }}>
-        <p>
-          Already have an account?{" "}
-          <Link href="/auth/signin" style={{ color: "#2563EB", fontWeight: 600 }}>
-            Sign in
-          </Link>
-        </p>
       </div>
     </div>
   );
@@ -334,4 +420,3 @@ export const getServerSideProps: GetServerSideProps<SignupPageProps> = async () 
     },
   };
 };
-

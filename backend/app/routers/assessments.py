@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -419,26 +420,78 @@ async def generate_questions(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid topics for question generation")
 
     results = []
+    failed_topics = []
+    
     for topic in topics:
         topic = _ensure_topic_structure(topic)
         config = _build_generation_config(topic)
-        generated_questions = await generate_questions_for_topic_safe(topic.get("topic"), config)
-        existing_questions = topic.get("questions", [])
-        merged_questions: List[Dict[str, Any]] = []
-        for index, new_question in enumerate(generated_questions):
-            if index < len(existing_questions):
-                merged = existing_questions[index].copy()
-                merged.update(new_question)
-            else:
-                merged = new_question
-            merged_questions.append(merged)
-        topic["questions"] = merged_questions
-        results.append({"topic": topic.get("topic"), "questions": merged_questions})
-
+        expected_count = topic.get("numQuestions", 0)
+        
+        # Retry logic for each topic
+        max_retries = 2
+        generated_questions = []
+        
+        for retry in range(max_retries):
+            try:
+                generated_questions = await generate_questions_for_topic_safe(topic.get("topic"), config)
+                # Check if we got enough questions
+                if len(generated_questions) >= expected_count:
+                    break
+                elif retry < max_retries - 1:
+                    logger.warning(f"Topic '{topic.get('topic')}' generated only {len(generated_questions)}/{expected_count} questions. Retrying...")
+                    await asyncio.sleep(1)  # Brief delay before retry
+                else:
+                    logger.warning(f"Topic '{topic.get('topic')}' generated only {len(generated_questions)}/{expected_count} questions after retries.")
+            except Exception as exc:
+                logger.error(f"Error generating questions for topic '{topic.get('topic')}': {exc}")
+                if retry < max_retries - 1:
+                    await asyncio.sleep(1)
+                else:
+                    failed_topics.append(topic.get("topic"))
+                    break
+        
+        # If we got some questions but not all, still use what we have
+        if generated_questions:
+            existing_questions = topic.get("questions", [])
+            merged_questions: List[Dict[str, Any]] = []
+            for index, new_question in enumerate(generated_questions):
+                if index < len(existing_questions):
+                    merged = existing_questions[index].copy()
+                    merged.update(new_question)
+                else:
+                    merged = new_question
+                merged_questions.append(merged)
+            topic["questions"] = merged_questions
+            results.append({"topic": topic.get("topic"), "questions": merged_questions, "expected": expected_count, "generated": len(merged_questions)})
+        else:
+            failed_topics.append(topic.get("topic"))
+    
+    # Save assessment even if some topics failed
     assessment["isGenerated"] = True
     assessment["status"] = "draft"
     await _save_assessment(db, assessment)
-    return success_response("Questions generated and saved successfully", results)
+    
+    if failed_topics:
+        logger.warning(f"Failed to generate questions for topics: {failed_topics}")
+        if not results:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate questions for all topics: {', '.join(failed_topics)}"
+            )
+    
+    return success_response(
+        "Questions generated and saved successfully",
+        {
+            "results": results,
+            "failedTopics": failed_topics if failed_topics else None,
+            "summary": {
+                "totalTopics": len(topics),
+                "successfulTopics": len(results),
+                "failedTopics": len(failed_topics),
+                "totalQuestions": sum(len(r["questions"]) for r in results)
+            }
+        }
+    )
 
 
 @router.put("/update-questions")

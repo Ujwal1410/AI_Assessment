@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from functools import lru_cache
 from typing import Any, Dict, List
 
@@ -114,128 +116,246 @@ async def generate_questions_for_topic(topic: str, config: Dict[str, Any]) -> Li
     question_type_label = "aptitude" if is_aptitude else "technical"
     
     prompt = f"""
-You are an expert assessment writer. Generate {num_questions} {question_type_label} questions for the topic "{topic}".
+You are an expert assessment writer with years of experience creating high-quality technical and aptitude assessments. 
+Generate {num_questions} high-quality {question_type_label} questions for the topic "{topic}".
+
+CRITICAL REQUIREMENTS - READ CAREFULLY:
 
 QUESTION CONFIGURATION:
 {config_list}
 
-IMPORTANT PARAGRAPH REQUIREMENTS BY DIFFICULTY:
+PARAGRAPH REQUIREMENTS BY DIFFICULTY (STRICT - MUST FOLLOW):
 {para_requirements_text}
 
-QUESTION STYLE REQUIREMENTS:
-1. Generate a MIX of both DIRECT and SCENARIO-BASED questions:
-   - Direct questions: Straightforward, concise questions that test knowledge directly
-   - Scenario-based questions: Questions embedded in realistic professional contexts or situations
-   - Vary the style - some questions should be direct, others should be scenario-based
-   - For scenario-based questions: Include realistic context, background, and professional situations
-   - For direct questions: Get straight to the point without extensive context
+QUALITY STANDARDS (MANDATORY):
+1. **Question Authenticity**: 
+   - Questions must be realistic and reflect real-world scenarios or professional contexts
+   - Avoid generic or overly simplistic questions
+   - Each question should test genuine understanding, not just memorization
 
-2. Paragraph Length Requirements (STRICT):
-   - Easy: Exactly 1 paragraph - short, easy, and concise. {_get_paragraph_requirements("Easy")["length_note"]}
-   - Medium: Exactly 2 paragraphs - moderate detail. {_get_paragraph_requirements("Medium")["length_note"]}
-   - Hard: Exactly 3 paragraphs - comprehensive detail. {_get_paragraph_requirements("Hard")["length_note"]}
+2. **Question Variety**:
+   - Mix DIRECT questions (straightforward, test core knowledge) with SCENARIO-BASED questions (realistic professional situations)
+   - Vary the complexity and approach - do NOT make all questions identical in style
+   - Include practical, application-based questions that test problem-solving skills
 
-3. Question Quality:
-   - Questions must be realistic, professional, and test understanding
-   - Make questions engaging and relevant to the topic
-   - Ensure questions are appropriate for their specified difficulty level
-   - Easy questions should be straightforward and short
-   - Medium questions should require moderate thinking and detail
-   - Hard questions should be complex and comprehensive
+3. **Difficulty Appropriateness**:
+   - Easy: Test fundamental concepts, basic understanding. Questions should be solvable with foundational knowledge.
+   - Medium: Require analysis, comparison, or application of concepts. Moderate complexity.
+   - Hard: Test deep understanding, complex problem-solving, or advanced concepts. Require critical thinking.
+
+4. **Paragraph Structure (STRICT)**:
+   - Easy: EXACTLY 1 paragraph - concise, clear, and to the point
+   - Medium: EXACTLY 2 paragraphs - first paragraph sets context, second presents the question
+   - Hard: EXACTLY 3 paragraphs - comprehensive context, detailed scenario, and clear question
 
 QUESTION FORMAT REQUIREMENTS:
-- questionText: Must follow the paragraph requirements above. Use exactly the required number of paragraphs based on difficulty.
-- type: Must match the specified type exactly (MCQ, Subjective, Pseudo Code, Descriptive, Aptitude, or Reasoning)
-- difficulty: Must match the specified difficulty exactly (Easy, Medium, or Hard)
-- idealAnswer: For Subjective/Descriptive questions, provide comprehensive answers (2-3 paragraphs for Medium/Hard, 1-2 for Easy)
-- expectedLogic: For Pseudo Code questions, provide detailed logic explanation
-- options: For MCQ questions, provide 4-5 realistic options with one correct answer
-- correctAnswer: For MCQ questions, specify the correct option (e.g., "A", "B", "C", etc.)
+Each question MUST be a valid JSON object with these exact fields:
+- questionText (string): The question text following paragraph requirements above
+- type (string): Must match exactly - "MCQ", "Subjective", "Pseudo Code", "Descriptive", "Aptitude", or "Reasoning"
+- difficulty (string): Must match exactly - "Easy", "Medium", or "Hard"
+- idealAnswer (string, required for Subjective/Descriptive): Comprehensive answer (2-3 paragraphs for Medium/Hard, 1-2 for Easy)
+- expectedLogic (string, required for Pseudo Code): Detailed step-by-step logic explanation
+- options (array of strings, required for MCQ): Exactly 4-5 realistic, plausible options
+- correctAnswer (string, required for MCQ): The correct option letter (e.g., "A", "B", "C", "D", "E")
 
 SPECIFIC QUESTION TYPE REQUIREMENTS:
-- MCQ: Provide 4-5 plausible options. Options should test deep understanding, not just surface knowledge.
-  * For aptitude MCQ questions: Focus on numerical reasoning, logical thinking, verbal ability, or problem-solving skills. 
-    Questions should test analytical and reasoning capabilities, not technical knowledge.
-    Provide clear, well-structured multiple choice options with one correct answer.
-- Subjective: Focus on understanding, analysis, and explanation. Provide comprehensive idealAnswer.
-- Pseudo Code: Require logical thinking and algorithm design. Provide detailed expectedLogic.
-- Descriptive: Test ability to explain concepts clearly and comprehensively.
-- Aptitude: Test numerical, logical, or problem-solving abilities. Can be direct or scenario-based.
-- Reasoning: Test logical reasoning, analytical thinking, or pattern recognition. Can be direct or scenario-based.
 
-IMPORTANT FOR APTITUDE QUESTIONS:
-- If generating aptitude questions (Quantitative, Logical Reasoning, Verbal Ability, Numerical Reasoning), 
-  ALL questions MUST be MCQ format only.
-- Aptitude MCQ questions should focus on problem-solving, reasoning, and analytical skills.
-- Do NOT generate Subjective, Pseudo Code, or Descriptive questions for aptitude topics.
+MCQ Questions:
+- Provide exactly 4-5 options (preferably 4 for clarity)
+- Options must be plausible and test deep understanding
+- Only ONE option should be clearly correct
+- Options should be similar in length and structure
+- For aptitude: Focus on numerical reasoning, logical thinking, verbal ability, problem-solving
+- Avoid obviously wrong options - make all options credible
 
-IMPORTANT: 
-- Vary question styles - do NOT make all questions scenario-based
-- Some questions should be direct and straightforward
-- Some questions should be scenario-based with context
-- Follow paragraph requirements STRICTLY based on difficulty level
-- Each question must have exactly the number of paragraphs specified for its difficulty
+Subjective Questions:
+- Require explanation, analysis, or reasoning
+- idealAnswer must be comprehensive and well-structured
+- Should test understanding, not just recall
+- idealAnswer should be 2-3 paragraphs for Medium/Hard, 1-2 for Easy
 
-Output a JSON array with {num_questions} question objects. Each question must follow its specific difficulty's paragraph requirements and be either direct or scenario-based.
+Pseudo Code Questions:
+- Require algorithm design or logical problem-solving
+- expectedLogic must provide detailed step-by-step explanation
+- Should test logical thinking and problem-solving approach
+
+Descriptive Questions:
+- Test ability to explain concepts clearly
+- idealAnswer should be comprehensive and well-organized
+- Should demonstrate deep understanding of the topic
+
+Aptitude Questions (if applicable):
+- MUST be MCQ format only
+- Focus on numerical reasoning, logical thinking, verbal ability, or problem-solving
+- Test analytical and reasoning capabilities
+- Should be realistic and practical
+
+Reasoning Questions:
+- Test logical reasoning, analytical thinking, or pattern recognition
+- Can be MCQ or Subjective format
+- Should require critical thinking
+
+OUTPUT FORMAT:
+You MUST output a valid JSON array containing exactly {num_questions} question objects.
+Each question object must be complete with all required fields based on its type.
+
+EXAMPLE STRUCTURE (DO NOT COPY, USE AS REFERENCE):
+[
+  {{
+    "questionText": "Paragraph 1 for context.\\n\\nParagraph 2 with the actual question?",
+    "type": "MCQ",
+    "difficulty": "Medium",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctAnswer": "B"
+  }},
+  {{
+    "questionText": "Single paragraph question for easy difficulty?",
+    "type": "Subjective",
+    "difficulty": "Easy",
+    "idealAnswer": "Comprehensive answer explaining the concept..."
+  }}
+]
+
+CRITICAL REMINDERS:
+- Generate EXACTLY {num_questions} questions
+- Follow paragraph requirements STRICTLY (1 for Easy, 2 for Medium, 3 for Hard)
+- Ensure all required fields are present based on question type
+- Make questions high-quality, realistic, and professionally relevant
+- Vary question styles (mix direct and scenario-based)
+- Output ONLY valid JSON - no markdown, no explanations, just the JSON array
 """
 
     client = _get_client()
-    try:
-        # Calculate tokens based on difficulty levels
-        # Easy: 1 paragraph (~200 tokens), Medium: 2 paragraphs (~400 tokens), Hard: 3 paragraphs (~600 tokens)
-        # Plus answers: Easy (~200), Medium (~400), Hard (~600)
-        max_tokens_per_question = {
-            "Easy": 500,   # 1 para question + answer
-            "Medium": 900,  # 2 para question + answer
-            "Hard": 1400   # 3 para question + answer
-        }
-        
-        # Calculate total tokens needed
-        total_tokens = 0
-        for qc in question_config:
-            total_tokens += max_tokens_per_question.get(qc["difficulty"], 900)
-        total_tokens += 500  # Buffer for JSON structure and formatting
-        
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=min(total_tokens, 4000),  # Cap at 4000 tokens
-        )
-    except Exception as exc:  # pragma: no cover - external API
-        raise HTTPException(status_code=500, detail="Failed to generate questions") from exc
+    max_retries = 3
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            # Calculate tokens based on difficulty levels
+            # Easy: 1 paragraph (~200 tokens), Medium: 2 paragraphs (~400 tokens), Hard: 3 paragraphs (~600 tokens)
+            # Plus answers: Easy (~200), Medium (~400), Hard (~600)
+            max_tokens_per_question = {
+                "Easy": 600,   # 1 para question + answer
+                "Medium": 1000,  # 2 para question + answer
+                "Hard": 1600   # 3 para question + answer
+            }
+            
+            # Calculate total tokens needed
+            total_tokens = 0
+            for qc in question_config:
+                total_tokens += max_tokens_per_question.get(qc["difficulty"], 1000)
+            total_tokens += 1000  # Buffer for JSON structure and formatting
+            
+            # Use gpt-4o-mini for better quality, with higher token limit
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are an expert assessment writer. Always output valid JSON arrays. Never include markdown code blocks or explanations outside the JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=min(total_tokens, 8000),  # Increased cap for better quality
+            )
+            break  # Success, exit retry loop
+        except Exception as exc:  # pragma: no cover - external API
+            last_error = exc
+            if attempt < max_retries - 1:
+                # Wait before retry (exponential backoff)
+                await asyncio.sleep(2 ** attempt)
+                continue
+            else:
+                raise HTTPException(status_code=500, detail=f"Failed to generate questions after {max_retries} attempts: {str(exc)}") from exc
 
     raw = response.choices[0].message.content.strip() if response.choices else ""
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[-1]
-        raw = raw.rsplit("```", 1)[0]
+    
+    # Clean up markdown code blocks if present
+    if raw.startswith("```json"):
+        raw = raw[7:]  # Remove ```json
+    elif raw.startswith("```"):
+        raw = raw[3:]  # Remove ```
+    if raw.endswith("```"):
+        raw = raw[:-3]  # Remove trailing ```
+    raw = raw.strip()
 
-    parsed: Any
+    parsed: Any = None
+    questions: List[Dict[str, Any]] = []
+    
+    # Try parsing as JSON
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        match = None
+        # Try to extract JSON array from text
         if "[" in raw and "]" in raw:
-            match = raw[raw.find("[") : raw.rfind("]") + 1]
-        if match:
+            start_idx = raw.find("[")
+            end_idx = raw.rfind("]") + 1
             try:
-                parsed = json.loads(match)
+                parsed = json.loads(raw[start_idx:end_idx])
             except json.JSONDecodeError:
-                parsed = []
-        else:
-            parsed = []
-
-    questions: List[Dict[str, Any]] = []
-    if isinstance(parsed, list):
+                pass
+    
+    # Parse the result
+    if parsed is None:
+        # Last resort: try to find and parse individual question objects
+        json_objects = re.findall(r'\{[^{}]*"questionText"[^{}]*\}', raw, re.DOTALL)
+        for obj_str in json_objects:
+            try:
+                obj = json.loads(obj_str)
+                if isinstance(obj, dict) and obj.get("questionText"):
+                    questions.append(obj)
+            except json.JSONDecodeError:
+                continue
+    elif isinstance(parsed, list):
         questions = [q for q in parsed if isinstance(q, dict) and q.get("questionText")]
     elif isinstance(parsed, dict):
-        data = parsed.get("questions")
-        if isinstance(data, list):
-            questions = [q for q in data if isinstance(q, dict) and q.get("questionText")]
+        # Check if it's a wrapper object
+        if "questions" in parsed and isinstance(parsed["questions"], list):
+            questions = [q for q in parsed["questions"] if isinstance(q, dict) and q.get("questionText")]
         elif parsed.get("questionText"):
             questions = [parsed]
+        # Check for array-like structure in values
+        elif any(isinstance(v, list) for v in parsed.values()):
+            for v in parsed.values():
+                if isinstance(v, list):
+                    questions.extend([q for q in v if isinstance(q, dict) and q.get("questionText")])
+                    break
 
-    return questions
+    # Validate and clean questions
+    validated_questions = []
+    for q in questions:
+        if not isinstance(q, dict):
+            continue
+        if not q.get("questionText"):
+            continue
+        
+        # Ensure required fields based on type
+        q_type = q.get("type", "").strip()
+        q["type"] = q_type
+        q["difficulty"] = q.get("difficulty", "Medium").strip()
+        
+        # Validate MCQ questions have options and correctAnswer
+        if q_type == "MCQ":
+            if not q.get("options") or not isinstance(q.get("options"), list) or len(q.get("options", [])) < 2:
+                continue  # Skip invalid MCQ
+            if not q.get("correctAnswer"):
+                # Try to infer from options
+                if q.get("options"):
+                    q["correctAnswer"] = "A"  # Default to first option
+                else:
+                    continue
+        
+        # Validate Subjective/Descriptive have idealAnswer
+        if q_type in ["Subjective", "Descriptive"]:
+            if not q.get("idealAnswer"):
+                q["idealAnswer"] = "Answer not provided."
+        
+        # Validate Pseudo Code has expectedLogic
+        if q_type == "Pseudo Code":
+            if not q.get("expectedLogic"):
+                q["expectedLogic"] = "Logic explanation not provided."
+        
+        validated_questions.append(q)
+    
+    return validated_questions
 
 
 async def generate_questions_for_topic_safe(topic: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:

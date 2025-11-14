@@ -32,10 +32,12 @@ export default function QuestionsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [editingQuestion, setEditingQuestion] = useState<{ topic: string; index: number } | null>(null);
+  const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
   const [showFinalize, setShowFinalize] = useState(false);
   const [finalTitle, setFinalTitle] = useState("");
   const [finalDescription, setFinalDescription] = useState("");
+  const [generationSummary, setGenerationSummary] = useState<any>(null);
 
   useEffect(() => {
     if (id) {
@@ -74,7 +76,12 @@ export default function QuestionsPage() {
           });
         }
 
-        setTopics(Object.values(topicsMap));
+        const topicsList = Object.values(topicsMap);
+        setTopics(topicsList);
+        // Auto-expand all topics if questions exist
+        if (topicsList.some(t => t.questions.length > 0)) {
+          setExpandedTopics(new Set(topicsList.map(t => t.topic)));
+        }
       }
     } catch (err: any) {
       console.error("Error fetching questions:", err);
@@ -88,6 +95,7 @@ export default function QuestionsPage() {
     setGenerating(true);
     setError(null);
     setSuccess(null);
+    setGenerationSummary(null);
 
     try {
       const response = await axios.post("/api/assessments/generate-questions", {
@@ -95,7 +103,17 @@ export default function QuestionsPage() {
       });
 
       if (response.data?.success) {
-        setSuccess("Questions generated successfully!");
+        const data = response.data.data;
+        if (data.summary) {
+          setGenerationSummary(data.summary);
+        }
+        
+        if (data.failedTopics && data.failedTopics.length > 0) {
+          setError(`Some questions failed to generate for: ${data.failedTopics.join(", ")}`);
+        } else {
+          setSuccess(`Successfully generated ${data.summary?.totalQuestions || 0} questions!`);
+        }
+        
         await fetchQuestions();
       } else {
         setError("Failed to generate questions");
@@ -140,6 +158,49 @@ export default function QuestionsPage() {
     }
   };
 
+  const toggleTopic = (topicName: string) => {
+    const newExpanded = new Set(expandedTopics);
+    if (newExpanded.has(topicName)) {
+      newExpanded.delete(topicName);
+    } else {
+      newExpanded.add(topicName);
+    }
+    setExpandedTopics(newExpanded);
+  };
+
+  const toggleQuestion = (questionKey: string) => {
+    const newExpanded = new Set(expandedQuestions);
+    if (newExpanded.has(questionKey)) {
+      newExpanded.delete(questionKey);
+    } else {
+      newExpanded.add(questionKey);
+    }
+    setExpandedQuestions(newExpanded);
+  };
+
+  const getDifficultyColor = (difficulty: string) => {
+    switch (difficulty) {
+      case "Hard":
+        return { bg: "#fee2e2", text: "#991b1b", border: "#fecaca" };
+      case "Medium":
+        return { bg: "#fef3c7", text: "#92400e", border: "#fde68a" };
+      default:
+        return { bg: "#d1fae5", text: "#065f46", border: "#a7f3d0" };
+    }
+  };
+
+  const getTypeColor = (type: string) => {
+    const colors: { [key: string]: { bg: string; text: string } } = {
+      MCQ: { bg: "#dbeafe", text: "#1e40af" },
+      Subjective: { bg: "#e0e7ff", text: "#3730a3" },
+      "Pseudo Code": { bg: "#fce7f3", text: "#831843" },
+      Descriptive: { bg: "#f3e8ff", text: "#6b21a8" },
+      Aptitude: { bg: "#fef3c7", text: "#92400e" },
+      Reasoning: { bg: "#d1fae5", text: "#065f46" },
+    };
+    return colors[type] || { bg: "#f1f5f9", text: "#475569" };
+  };
+
   const totalQuestions = topics.reduce((sum, topic) => sum + topic.questions.length, 0);
   const hasQuestions = totalQuestions > 0;
 
@@ -147,27 +208,31 @@ export default function QuestionsPage() {
     return (
       <div className="container">
         <div className="card">
-          <p style={{ textAlign: "center", color: "#475569" }}>Loading questions...</p>
+          <div style={{ textAlign: "center", padding: "3rem" }}>
+            <div style={{ fontSize: "2rem", marginBottom: "1rem" }}>⏳</div>
+            <p style={{ color: "#475569", fontSize: "1.125rem" }}>Loading questions...</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container">
-      <div className="card">
-        <div style={{ marginBottom: "2rem" }}>
-          <Link href="/dashboard" style={{ color: "#3b82f6", textDecoration: "none" }}>
-            ← Back to Dashboard
-          </Link>
-        </div>
+    <div style={{ backgroundColor: "#faf9f7", minHeight: "100vh" }}>
+      <div className="container">
+        <div className="card">
+          <div style={{ marginBottom: "2rem" }}>
+            <Link href="/dashboard" style={{ color: "#6953a3", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem", fontWeight: 600 }}>
+              <span>←</span> Back to Dashboard
+            </Link>
+          </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
           <div>
-            <h1 style={{ margin: 0, marginBottom: "0.5rem" }}>Questions</h1>
-            <p style={{ color: "#475569", margin: 0 }}>
+            <h1 style={{ margin: 0, marginBottom: "0.5rem", fontSize: "2rem", color: "#1a1625", fontWeight: 700 }}>Generated Questions</h1>
+            <p style={{ color: "#64748b", margin: 0, fontSize: "1rem" }}>
               {hasQuestions
-                ? `Total: ${totalQuestions} questions across ${topics.length} topics`
+                ? `${totalQuestions} question${totalQuestions !== 1 ? "s" : ""} across ${topics.length} topic${topics.length !== 1 ? "s" : ""}`
                 : "Generate questions for your configured topics"}
             </p>
           </div>
@@ -177,157 +242,396 @@ export default function QuestionsPage() {
               onClick={handleGenerateQuestions}
               className="btn-primary"
               disabled={generating}
+              style={{ 
+                padding: "0.75rem 1.5rem",
+                fontSize: "1rem",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem"
+              }}
             >
-              {generating ? "Generating..." : "Generate Questions"}
+              {generating ? (
+                <>
+                  <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <span>✨</span>
+                  Generate Questions
+                </>
+              )}
             </button>
           )}
         </div>
 
         {error && (
-          <div className="alert alert-error" style={{ marginBottom: "1.5rem" }}>
-            {error}
+          <div className="alert alert-error" style={{ marginBottom: "1.5rem", padding: "1rem", borderRadius: "0.5rem" }}>
+            <div style={{ display: "flex", alignItems: "start", gap: "0.75rem" }}>
+              <span style={{ fontSize: "1.25rem" }}>⚠️</span>
+              <div style={{ flex: 1 }}>
+                <strong style={{ display: "block", marginBottom: "0.25rem" }}>Error</strong>
+                <span>{error}</span>
+              </div>
+            </div>
           </div>
         )}
 
         {success && (
-          <div className="alert alert-success" style={{ marginBottom: "1.5rem" }}>
-            {success}
+          <div className="alert alert-success" style={{ marginBottom: "1.5rem", padding: "1rem", borderRadius: "0.5rem" }}>
+            <div style={{ display: "flex", alignItems: "start", gap: "0.75rem" }}>
+              <span style={{ fontSize: "1.25rem" }}>✅</span>
+              <div style={{ flex: 1 }}>
+                <strong style={{ display: "block", marginBottom: "0.25rem" }}>Success</strong>
+                <span>{success}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {generationSummary && (
+          <div style={{ 
+            marginBottom: "1.5rem", 
+            padding: "1rem", 
+            backgroundColor: "#f0f9ff", 
+            borderRadius: "0.5rem",
+            border: "1px solid #bae6fd"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <span style={{ fontSize: "1.25rem" }}>📊</span>
+              <strong style={{ color: "#0c4a6e" }}>Generation Summary</strong>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "1rem", marginTop: "0.75rem" }}>
+              <div>
+                <div style={{ fontSize: "0.875rem", color: "#64748b" }}>Total Topics</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0c4a6e" }}>{generationSummary.totalTopics}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "0.875rem", color: "#64748b" }}>Successful</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#059669" }}>{generationSummary.successfulTopics}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "0.875rem", color: "#64748b" }}>Failed</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: generationSummary.failedTopics > 0 ? "#dc2626" : "#059669" }}>
+                  {generationSummary.failedTopics}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "0.875rem", color: "#64748b" }}>Total Questions</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0c4a6e" }}>{generationSummary.totalQuestions}</div>
+              </div>
+            </div>
           </div>
         )}
 
         {!hasQuestions ? (
-          <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
-            <p style={{ color: "#64748b", marginBottom: "2rem" }}>
-              No questions generated yet. Click the button above to generate questions using AI.
+          <div style={{ textAlign: "center", padding: "4rem 2rem", backgroundColor: "#f8fafc", borderRadius: "0.75rem" }}>
+            <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>📝</div>
+            <h3 style={{ marginBottom: "0.5rem", color: "#1e293b" }}>No Questions Generated Yet</h3>
+            <p style={{ color: "#64748b", marginBottom: "2rem", maxWidth: "500px", margin: "0 auto 2rem" }}>
+              Click the button above to generate high-quality questions using AI. The system will create questions based on your configured topics, difficulty levels, and question types.
             </p>
           </div>
         ) : (
           <>
-            {topics.map((topic) => (
-              <div
-                key={topic.topic}
-                style={{
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "0.75rem",
-                  padding: "1.5rem",
-                  marginBottom: "2rem",
-                  backgroundColor: "#ffffff",
-                }}
-              >
-                <h2 style={{ margin: 0, marginBottom: "1rem", color: "#0f172a", fontSize: "1.25rem" }}>
-                  {topic.topic}
-                </h2>
-                <p style={{ color: "#64748b", fontSize: "0.875rem", marginBottom: "1.5rem" }}>
-                  {topic.questions.length} question{topic.questions.length !== 1 ? "s" : ""} • Difficulty: {topic.difficulty}
-                </p>
-
-                {topic.questions.map((question, qIndex) => (
+            {topics.map((topic) => {
+              const isExpanded = expandedTopics.has(topic.topic);
+              const diffColor = getDifficultyColor(topic.difficulty);
+              const hasAllQuestions = topic.questions.length >= topic.numQuestions;
+              
+              return (
+                <div
+                  key={topic.topic}
+                  style={{
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "0.75rem",
+                    marginBottom: "1.5rem",
+                    backgroundColor: "#ffffff",
+                    overflow: "hidden",
+                    boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1)",
+                  }}
+                >
+                  {/* Topic Header */}
                   <div
-                    key={qIndex}
+                    onClick={() => toggleTopic(topic.topic)}
                     style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "0.5rem",
-                      padding: "1.25rem",
-                      marginBottom: "1rem",
-                      backgroundColor: "#f8fafc",
+                      padding: "1.25rem 1.5rem",
+                      backgroundColor: isExpanded ? "#f8fafc" : "#ffffff",
+                      cursor: "pointer",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      borderBottom: isExpanded ? "1px solid #e2e8f0" : "none",
+                      transition: "background-color 0.2s",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "0.75rem" }}>
-                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                        <h2 style={{ margin: 0, fontSize: "1.25rem", color: "#0f172a", fontWeight: 600 }}>
+                          {topic.topic}
+                        </h2>
                         <span
                           style={{
-                            backgroundColor: "#3b82f6",
-                            color: "#ffffff",
+                            backgroundColor: diffColor.bg,
+                            color: diffColor.text,
                             padding: "0.25rem 0.75rem",
                             borderRadius: "9999px",
                             fontSize: "0.75rem",
                             fontWeight: 600,
+                            border: `1px solid ${diffColor.border}`,
                           }}
                         >
-                          Q{qIndex + 1}
+                          {topic.difficulty}
                         </span>
-                        <span
-                          style={{
-                            backgroundColor: "#e2e8f0",
-                            color: "#475569",
-                            padding: "0.25rem 0.75rem",
-                            borderRadius: "9999px",
-                            fontSize: "0.75rem",
-                            fontWeight: 500,
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          {question.type}
+                        {!hasAllQuestions && (
+                          <span style={{ 
+                            fontSize: "0.75rem", 
+                            color: "#dc2626",
+                            fontWeight: 500
+                          }}>
+                            ⚠️ {topic.questions.length}/{topic.numQuestions} questions
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ color: "#64748b", fontSize: "0.875rem" }}>
+                          {topic.questions.length} question{topic.questions.length !== 1 ? "s" : ""}
                         </span>
-                        <span
-                          style={{
-                            backgroundColor: question.difficulty === "Hard" ? "#fee2e2" : question.difficulty === "Medium" ? "#fef3c7" : "#d1fae5",
-                            color: question.difficulty === "Hard" ? "#991b1b" : question.difficulty === "Medium" ? "#92400e" : "#065f46",
-                            padding: "0.25rem 0.75rem",
-                            borderRadius: "9999px",
-                            fontSize: "0.75rem",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {question.difficulty}
-                        </span>
+                        {topic.questionTypes.length > 0 && (
+                          <>
+                            <span style={{ color: "#cbd5e1" }}>•</span>
+                            <span style={{ color: "#64748b", fontSize: "0.875rem" }}>
+                              {topic.questionTypes.join(", ")}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
-
-                    <p style={{ color: "#1e293b", marginBottom: "1rem", lineHeight: 1.6, fontWeight: 500 }}>
-                      {question.questionText}
-                    </p>
-
-                    {question.type === "MCQ" && question.options && (
-                      <div style={{ marginBottom: "1rem" }}>
-                        <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#475569", marginBottom: "0.5rem" }}>
-                          Options:
-                        </p>
-                        <ul style={{ margin: 0, paddingLeft: "1.5rem", color: "#64748b" }}>
-                          {question.options.map((option, optIndex) => (
-                            <li key={optIndex} style={{ marginBottom: "0.25rem" }}>
-                              {option}
-                              {question.correctAnswer === option && (
-                                <span style={{ color: "#10b981", marginLeft: "0.5rem", fontWeight: 600 }}>✓ Correct</span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(question.type === "Subjective" || question.type === "Descriptive" || question.type === "Pseudo Code") &&
-                      question.idealAnswer && (
-                        <div style={{ marginBottom: "1rem" }}>
-                          <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#475569", marginBottom: "0.5rem" }}>
-                            Ideal Answer:
-                          </p>
-                          <p style={{ color: "#64748b", backgroundColor: "#ffffff", padding: "0.75rem", borderRadius: "0.5rem", margin: 0 }}>
-                            {question.idealAnswer}
-                          </p>
-                        </div>
-                      )}
+                    <div style={{ fontSize: "1.5rem", color: "#64748b", transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                      ▼
+                    </div>
                   </div>
-                ))}
-              </div>
-            ))}
 
-            <div style={{ marginTop: "2rem", paddingTop: "2rem", borderTop: "1px solid #e2e8f0" }}>
+                  {/* Questions List */}
+                  {isExpanded && (
+                    <div style={{ padding: "1.5rem" }}>
+                      {topic.questions.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
+                          No questions generated for this topic yet.
+                        </div>
+                      ) : (
+                        topic.questions.map((question, qIndex) => {
+                          const questionKey = `${topic.topic}-${qIndex}`;
+                          const isQExpanded = expandedQuestions.has(questionKey);
+                          const typeColor = getTypeColor(question.type);
+                          const qDiffColor = getDifficultyColor(question.difficulty);
+
+                          return (
+                            <div
+                              key={qIndex}
+                              style={{
+                                border: "1px solid #e2e8f0",
+                                borderRadius: "0.5rem",
+                                marginBottom: "1rem",
+                                backgroundColor: "#ffffff",
+                                overflow: "hidden",
+                              }}
+                            >
+                              {/* Question Header */}
+                              <div
+                                onClick={() => toggleQuestion(questionKey)}
+                                style={{
+                                  padding: "1rem 1.25rem",
+                                  backgroundColor: isQExpanded ? "#f8fafc" : "#ffffff",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "start",
+                                  borderBottom: isQExpanded ? "1px solid #e2e8f0" : "none",
+                                }}
+                              >
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                                    <span
+                                      style={{
+                                        backgroundColor: "#6953a3",
+                                        color: "#ffffff",
+                                        padding: "0.25rem 0.75rem",
+                                        borderRadius: "9999px",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 700,
+                                        minWidth: "2.5rem",
+                                        textAlign: "center",
+                                      }}
+                                    >
+                                      Q{qIndex + 1}
+                                    </span>
+                                    <span
+                                      style={{
+                                        backgroundColor: typeColor.bg,
+                                        color: typeColor.text,
+                                        padding: "0.25rem 0.75rem",
+                                        borderRadius: "9999px",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 600,
+                                        textTransform: "uppercase",
+                                      }}
+                                    >
+                                      {question.type}
+                                    </span>
+                                    <span
+                                      style={{
+                                        backgroundColor: qDiffColor.bg,
+                                        color: qDiffColor.text,
+                                        padding: "0.25rem 0.75rem",
+                                        borderRadius: "9999px",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 500,
+                                        border: `1px solid ${qDiffColor.border}`,
+                                      }}
+                                    >
+                                      {question.difficulty}
+                                    </span>
+                                  </div>
+                                  <p
+                                    style={{
+                                      color: "#1e293b",
+                                      margin: 0,
+                                      lineHeight: 1.6,
+                                      fontWeight: 500,
+                                      fontSize: "0.9375rem",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: isQExpanded ? "none" : 2,
+                                      WebkitBoxOrient: "vertical",
+                                      overflow: "hidden",
+                                    }}
+                                  >
+                                    {question.questionText}
+                                  </p>
+                                </div>
+                                <div style={{ fontSize: "1.25rem", color: "#64748b", marginLeft: "1rem", transition: "transform 0.2s", transform: isQExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                                  ▼
+                                </div>
+                              </div>
+
+                              {/* Question Details */}
+                              {isQExpanded && (
+                                <div style={{ padding: "1.25rem", backgroundColor: "#f8fafc" }}>
+                                  <div style={{ marginBottom: "1rem" }}>
+                                    <p style={{ color: "#1e293b", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>
+                                      {question.questionText}
+                                    </p>
+                                  </div>
+
+                                  {question.type === "MCQ" && question.options && (
+                                    <div style={{ marginBottom: "1rem" }}>
+                                      <h4 style={{ fontSize: "0.875rem", fontWeight: 700, color: "#475569", marginBottom: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                        Options
+                                      </h4>
+                                      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                                        {question.options.map((option, optIndex) => {
+                                          const isCorrect = question.correctAnswer === String.fromCharCode(65 + optIndex) || 
+                                                           question.correctAnswer === option ||
+                                                           (optIndex === 0 && !question.correctAnswer);
+                                          return (
+                                            <div
+                                              key={optIndex}
+                                              style={{
+                                                padding: "0.75rem 1rem",
+                                                backgroundColor: "#ffffff",
+                                                borderRadius: "0.5rem",
+                                                border: `2px solid ${isCorrect ? "#10b981" : "#e2e8f0"}`,
+                                                display: "flex",
+                                                alignItems: "start",
+                                                gap: "0.75rem",
+                                              }}
+                                            >
+                                              <span style={{ 
+                                                fontWeight: 700, 
+                                                color: isCorrect ? "#10b981" : "#64748b",
+                                                minWidth: "1.5rem"
+                                              }}>
+                                                {String.fromCharCode(65 + optIndex)}.
+                                              </span>
+                                              <span style={{ flex: 1, color: "#1e293b" }}>{option}</span>
+                                              {isCorrect && (
+                                                <span style={{ color: "#10b981", fontWeight: 700, fontSize: "1.125rem" }}>
+                                                  ✓
+                                                </span>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {(question.type === "Subjective" || question.type === "Descriptive") && question.idealAnswer && (
+                                    <div style={{ marginBottom: "1rem" }}>
+                                      <h4 style={{ fontSize: "0.875rem", fontWeight: 700, color: "#475569", marginBottom: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                        Ideal Answer
+                                      </h4>
+                                      <div style={{ 
+                                        backgroundColor: "#ffffff", 
+                                        padding: "1rem", 
+                                        borderRadius: "0.5rem",
+                                        border: "1px solid #e2e8f0"
+                                      }}>
+                                        <p style={{ color: "#1e293b", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>
+                                          {question.idealAnswer}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {question.type === "Pseudo Code" && question.expectedLogic && (
+                                    <div>
+                                      <h4 style={{ fontSize: "0.875rem", fontWeight: 700, color: "#475569", marginBottom: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                        Expected Logic
+                                      </h4>
+                                      <div style={{ 
+                                        backgroundColor: "#ffffff", 
+                                        padding: "1rem", 
+                                        borderRadius: "0.5rem",
+                                        border: "1px solid #e2e8f0"
+                                      }}>
+                                        <p style={{ color: "#1e293b", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: "monospace", fontSize: "0.875rem" }}>
+                                          {question.expectedLogic}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <div style={{ marginTop: "3rem", paddingTop: "2rem", borderTop: "2px solid #e2e8f0" }}>
               {!showFinalize ? (
-                <button
-                  type="button"
-                  onClick={() => setShowFinalize(true)}
-                  className="btn-primary"
-                  style={{ fontSize: "1rem", padding: "0.75rem 2rem" }}
-                >
-                  Finalize Assessment
-                </button>
+                <div style={{ textAlign: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowFinalize(true)}
+                    className="btn-primary"
+                    style={{ fontSize: "1rem", padding: "0.875rem 2rem", fontWeight: 600 }}
+                  >
+                    Finalize Assessment
+                  </button>
+                </div>
               ) : (
-                <div style={{ backgroundColor: "#f8fafc", padding: "1.5rem", borderRadius: "0.75rem" }}>
-                  <h3 style={{ marginBottom: "1rem", fontSize: "1.125rem" }}>Finalize Assessment</h3>
-                  <div style={{ marginBottom: "1rem" }}>
-                    <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500, color: "#1e293b" }}>
-                      Title *
+                <div style={{ backgroundColor: "#f8fafc", padding: "2rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0" }}>
+                  <h3 style={{ marginBottom: "1.5rem", fontSize: "1.25rem", color: "#0f172a" }}>Finalize Assessment</h3>
+                  <div style={{ marginBottom: "1.5rem" }}>
+                    <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, color: "#1e293b" }}>
+                      Title <span style={{ color: "#dc2626" }}>*</span>
                     </label>
                     <input
                       type="text"
@@ -345,14 +649,14 @@ export default function QuestionsPage() {
                     />
                   </div>
                   <div style={{ marginBottom: "1.5rem" }}>
-                    <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500, color: "#1e293b" }}>
+                    <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, color: "#1e293b" }}>
                       Description
                     </label>
                     <textarea
                       value={finalDescription}
                       onChange={(e) => setFinalDescription(e.target.value)}
                       placeholder="Enter assessment description (optional)"
-                      rows={3}
+                      rows={4}
                       style={{
                         width: "100%",
                         padding: "0.75rem",
@@ -360,6 +664,7 @@ export default function QuestionsPage() {
                         borderRadius: "0.5rem",
                         fontSize: "1rem",
                         fontFamily: "inherit",
+                        resize: "vertical",
                       }}
                     />
                   </div>
@@ -369,6 +674,7 @@ export default function QuestionsPage() {
                       onClick={handleFinalize}
                       className="btn-primary"
                       disabled={saving || !finalTitle.trim()}
+                      style={{ flex: 1 }}
                     >
                       {saving ? "Finalizing..." : "Finalize & Complete"}
                     </button>
@@ -386,11 +692,8 @@ export default function QuestionsPage() {
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );
 }
-
-
-
-

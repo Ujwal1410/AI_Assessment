@@ -59,7 +59,6 @@ export default function DashboardPage() {
       const response = await axios.delete(`/api/assessments/delete-assessment?assessmentId=${assessmentId}`);
       
       if (response.data?.success) {
-        // Remove the assessment from the list
         setAssessments(assessments.filter((a) => a.id !== assessmentId));
       } else {
         setError(response.data?.message || "Failed to delete assessment");
@@ -73,15 +72,15 @@ export default function DashboardPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "ready":
-        return "#10b981"; // green
+        return { bg: "#dcfce7", text: "#166534", border: "#10b981" };
       case "draft":
-        return "#f59e0b"; // amber
+        return { bg: "rgba(244, 228, 3, 0.2)", text: "#8b7a00", border: "#f4e403" };
       case "scheduled":
-        return "#3b82f6"; // blue
+        return { bg: "rgba(105, 83, 163, 0.1)", text: "#6953a3", border: "#6953a3" };
       case "active":
-        return "#8b5cf6"; // purple
+        return { bg: "#dbeafe", text: "#1e40af", border: "#3b82f6" };
       default:
-        return "#6b7280"; // gray
+        return { bg: "#f1f5f9", text: "#475569", border: "#94a3b8" };
     }
   };
 
@@ -99,153 +98,237 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="container">
-      <div className="card" style={{ marginBottom: "2rem", position: "relative", overflow: "hidden" }}>
-        <button
-          type="button"
-          onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-          className="btn-secondary"
-          style={{ position: "absolute", top: "1.5rem", right: "1.5rem" }}
-        >
-          Sign Out
-        </button>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <div>
-            <h1 style={{ margin: 0 }}>Assessments</h1>
-            <p style={{ color: "#475569", marginTop: "0.5rem", marginBottom: 0 }}>
-              You are signed in as <strong>{session?.user?.email}</strong> with role <strong>{role}</strong>.
-            </p>
+    <div style={{ backgroundColor: "#faf9f7", minHeight: "100vh" }}>
+      <header className="enterprise-header">
+        <div className="enterprise-header-content">
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <span style={{ fontSize: "1.25rem", fontWeight: 700, letterSpacing: "-0.02em" }}>
+              AI Assessment Platform
+            </span>
           </div>
-          <Link href="/assessments/create">
-            <button type="button" className="btn-primary">
-              + Create New Assessment
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <span style={{ fontSize: "0.875rem", opacity: 0.9 }}>
+              {session?.user?.email}
+            </span>
+            <button
+              type="button"
+              onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+              className="btn-secondary"
+              style={{
+                marginTop: 0,
+                padding: "0.625rem 1.25rem",
+                fontSize: "0.875rem",
+                backgroundColor: "rgba(255, 255, 255, 0.2)",
+                borderColor: "rgba(255, 255, 255, 0.3)",
+                color: "#ffffff",
+              }}
+            >
+              Sign Out
             </button>
-          </Link>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {loading ? (
-        <div className="card">
-          <p style={{ textAlign: "center", color: "#475569" }}>Loading assessments...</p>
-        </div>
-      ) : error ? (
-        <div className="card">
-          <div className="alert alert-error">{error}</div>
-          <button type="button" className="btn-primary" onClick={fetchAssessments} style={{ marginTop: "1rem" }}>
-            Retry
-          </button>
-        </div>
-      ) : assessments.length === 0 ? (
-        <div className="card">
-          <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
-            <h2 style={{ color: "#1e293b", marginBottom: "1rem" }}>No assessments yet</h2>
-            <p style={{ color: "#475569", marginBottom: "2rem" }}>
-              Create your first assessment to get started with AI-powered topic and question generation.
-            </p>
+      <div className="container">
+        <div className="card" style={{ marginBottom: "2rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+            <div>
+              <h1 style={{ margin: 0, marginBottom: "0.5rem", fontSize: "2rem", color: "#1a1625", fontWeight: 700 }}>
+                Assessments Dashboard
+              </h1>
+              <p style={{ color: "#6b6678", margin: 0, fontSize: "0.9375rem" }}>
+                You are signed in as <strong>{session?.user?.email}</strong> with role{" "}
+                <span className="badge badge-purple" style={{ marginLeft: "0.5rem" }}>
+                  {role}
+                </span>
+              </p>
+            </div>
             <Link href="/assessments/create">
-              <button type="button" className="btn-primary">
-                Create Your First Assessment
+              <button type="button" className="btn-primary" style={{ marginTop: 0 }}>
+                + Create New Assessment
               </button>
             </Link>
           </div>
         </div>
-      ) : (
-        <div className="card">
-          <h2 style={{ marginBottom: "1.5rem" }}>Your Assessments ({assessments.length})</h2>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-              gap: "1.5rem",
-            }}
-          >
-            {assessments.map((assessment) => (
-              <div
-                key={assessment.id}
-                style={{
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "0.75rem",
-                  padding: "1.5rem",
-                  backgroundColor: "#ffffff",
-                  transition: "box-shadow 0.2s",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.1)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-                onClick={() => router.push(`/assessments/${assessment.id}`)}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1rem" }}>
-                  <h3 style={{ margin: 0, color: "#0f172a", fontSize: "1.125rem" }}>{assessment.title}</h3>
-                  <span
-                    style={{
-                      backgroundColor: getStatusColor(assessment.status) + "20",
-                      color: getStatusColor(assessment.status),
-                      padding: "0.25rem 0.75rem",
-                      borderRadius: "9999px",
-                      fontSize: "0.75rem",
-                      fontWeight: 600,
-                      textTransform: "capitalize",
-                    }}
-                  >
-                    {assessment.status}
-                  </span>
-                </div>
-                <div style={{ color: "#64748b", fontSize: "0.875rem", marginBottom: "0.5rem" }}>
-                  Created: {formatDate(assessment.createdAt)}
-                </div>
-                {assessment.hasSchedule && assessment.scheduleStatus && (
-                  <div style={{ color: "#64748b", fontSize: "0.875rem" }}>
-                    {assessment.scheduleStatus.isActive ? "🟢 Active" : "⏸️ Scheduled"}
-                  </div>
-                )}
-                <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    style={{ fontSize: "0.875rem", padding: "0.5rem 1rem" }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      router.push(`/assessments/${assessment.id}`);
-                    }}
-                  >
-                    View
-                  </button>
-                  <button
-                    type="button"
-                    style={{
-                      fontSize: "0.875rem",
-                      padding: "0.5rem 1rem",
-                      backgroundColor: "#ef4444",
-                      color: "#ffffff",
-                      border: "none",
-                      borderRadius: "0.375rem",
-                      cursor: "pointer",
-                      transition: "background-color 0.2s",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = "#dc2626";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "#ef4444";
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteAssessment(assessment.id, assessment.title);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
+
+        {loading ? (
+          <div className="card">
+            <div style={{ textAlign: "center", padding: "3rem" }}>
+              <div className="spinner" style={{ fontSize: "2rem", marginBottom: "1rem" }}>⟳</div>
+              <p style={{ color: "#6b6678" }}>Loading assessments...</p>
+            </div>
           </div>
-        </div>
-      )}
+        ) : error ? (
+          <div className="card">
+            <div className="alert alert-error">{error}</div>
+            <button type="button" className="btn-primary" onClick={fetchAssessments} style={{ marginTop: "1rem" }}>
+              Retry
+            </button>
+          </div>
+        ) : assessments.length === 0 ? (
+          <div className="card">
+            <div style={{ textAlign: "center", padding: "4rem 2rem" }}>
+              <div
+                style={{
+                  width: "80px",
+                  height: "80px",
+                  margin: "0 auto 1.5rem",
+                  backgroundColor: "#f1dcba",
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "2.5rem",
+                }}
+              >
+                📋
+              </div>
+              <h2 style={{ color: "#1a1625", marginBottom: "1rem", fontSize: "1.5rem" }}>
+                No assessments yet
+              </h2>
+              <p style={{ color: "#6b6678", marginBottom: "2rem", maxWidth: "500px", margin: "0 auto 2rem" }}>
+                Create your first assessment to get started with AI-powered topic and question
+                generation.
+              </p>
+              <Link href="/assessments/create">
+                <button type="button" className="btn-primary" style={{ marginTop: 0 }}>
+                  Create Your First Assessment
+                </button>
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
+              <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#1a1625", fontWeight: 700 }}>
+                Your Assessments
+              </h2>
+              <span
+                className="badge badge-purple"
+                style={{ fontSize: "0.875rem", padding: "0.5rem 1rem" }}
+              >
+                {assessments.length} Total
+              </span>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+                gap: "1.5rem",
+              }}
+            >
+              {assessments.map((assessment) => {
+                const statusColors = getStatusColor(assessment.status);
+                return (
+                  <div
+                    key={assessment.id}
+                    className="card-hover"
+                    style={{
+                      border: "1px solid #e8e0d0",
+                      borderRadius: "0.75rem",
+                      padding: "1.5rem",
+                      backgroundColor: "#ffffff",
+                      cursor: "pointer",
+                    }}
+                    onClick={() => router.push(`/assessments/${assessment.id}`)}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "start",
+                        marginBottom: "1rem",
+                      }}
+                    >
+                      <h3
+                        style={{
+                          margin: 0,
+                          color: "#1a1625",
+                          fontSize: "1.125rem",
+                          fontWeight: 600,
+                          flex: 1,
+                        }}
+                      >
+                        {assessment.title}
+                      </h3>
+                      <span
+                        className="badge"
+                        style={{
+                          backgroundColor: statusColors.bg,
+                          color: statusColors.text,
+                          border: `1px solid ${statusColors.border}`,
+                          textTransform: "capitalize",
+                          marginLeft: "0.5rem",
+                        }}
+                      >
+                        {assessment.status}
+                      </span>
+                    </div>
+                    <div style={{ color: "#6b6678", fontSize: "0.875rem", marginBottom: "0.75rem" }}>
+                      <div style={{ marginBottom: "0.25rem" }}>
+                        <strong>Created:</strong> {formatDate(assessment.createdAt)}
+                      </div>
+                      {assessment.hasSchedule && assessment.scheduleStatus && (
+                        <div>
+                          {assessment.scheduleStatus.isActive ? (
+                            <span style={{ color: "#10b981" }}>🟢 Active</span>
+                          ) : (
+                            <span style={{ color: "#f59e0b" }}>⏸️ Scheduled</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", paddingTop: "1rem", borderTop: "1px solid #f1dcba" }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{
+                          fontSize: "0.875rem",
+                          padding: "0.5rem 1rem",
+                          marginTop: 0,
+                          flex: 1,
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/assessments/${assessment.id}`);
+                        }}
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          fontSize: "0.875rem",
+                          padding: "0.5rem 1rem",
+                          backgroundColor: "#ef4444",
+                          color: "#ffffff",
+                          border: "none",
+                          borderRadius: "0.375rem",
+                          cursor: "pointer",
+                          transition: "background-color 0.2s",
+                          flex: 1,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = "#dc2626";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = "#ef4444";
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteAssessment(assessment.id, assessment.title);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

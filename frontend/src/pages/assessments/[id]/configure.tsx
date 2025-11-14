@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import axios from "axios";
 
-const QUESTION_TYPES = ["MCQ", "Subjective", "Pseudo Code", "Descriptive", "Aptitude", "Reasoning"];
+const QUESTION_TYPES = ["MCQ", "Subjective", "Pseudo Code", "Descriptive"];
 const DIFFICULTY_LEVELS = ["Easy", "Medium", "Hard"];
 
 interface Topic {
@@ -196,28 +196,29 @@ export default function ConfigureTopicsPage() {
   }
 
   return (
-    <div className="container">
-      <div className="card">
-        <div style={{ marginBottom: "2rem" }}>
-          <Link href="/dashboard" style={{ color: "#3b82f6", textDecoration: "none" }}>
-            ← Back to Dashboard
-          </Link>
-        </div>
-
-        <h1 style={{ marginBottom: "0.5rem" }}>Configure Topics</h1>
-        <p style={{ color: "#475569", marginBottom: "2rem" }}>
-          Configure the number of questions, question types, and difficulty for each topic. You can also add custom topics.
-        </p>
-
-        {error && (
-          <div className="alert alert-error" style={{ marginBottom: "1.5rem" }}>
-            {error}
+    <div style={{ backgroundColor: "#faf9f7", minHeight: "100vh" }}>
+      <div className="container">
+        <div className="card">
+          <div style={{ marginBottom: "2rem" }}>
+            <Link href="/dashboard" style={{ color: "#6953a3", textDecoration: "none", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+              <span>←</span> Back to Dashboard
+            </Link>
           </div>
-        )}
 
-        {/* Add Custom Topic */}
-        <div style={{ marginBottom: "2rem", padding: "1.5rem", backgroundColor: "#f8fafc", borderRadius: "0.75rem" }}>
-          <h3 style={{ marginBottom: "1rem", fontSize: "1.125rem" }}>Add Custom Topic</h3>
+          <h1 style={{ marginBottom: "0.5rem", fontSize: "2rem", color: "#1a1625", fontWeight: 700 }}>Configure Topics</h1>
+          <p style={{ color: "#6b6678", marginBottom: "2rem", fontSize: "1rem" }}>
+            Configure the number of questions, question types, and difficulty for each topic. You can also add custom topics.
+          </p>
+
+          {error && (
+            <div className="alert alert-error" style={{ marginBottom: "1.5rem" }}>
+              {error}
+            </div>
+          )}
+
+          {/* Add Custom Topic */}
+          <div style={{ marginBottom: "2rem", padding: "1.5rem", backgroundColor: "#f1dcba", borderRadius: "0.75rem", border: "1px solid #e8d0a0" }}>
+            <h3 style={{ marginBottom: "1rem", fontSize: "1.125rem", color: "#1a1625", fontWeight: 600 }}>Add Custom Topic</h3>
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <input
               type="text"
@@ -253,7 +254,7 @@ export default function ConfigureTopicsPage() {
               {/* Aptitude Topics Section */}
               {topics.some((t) => t.category === "aptitude") && (
                 <div style={{ marginBottom: "2.5rem" }}>
-                  <h2 style={{ marginBottom: "1rem", fontSize: "1.25rem", color: "#0f172a", borderBottom: "2px solid #3b82f6", paddingBottom: "0.5rem" }}>
+                  <h2 style={{ marginBottom: "1rem", fontSize: "1.25rem", color: "#1a1625", borderBottom: "2px solid #6953a3", paddingBottom: "0.5rem", fontWeight: 700 }}>
                     Aptitude Topics
                   </h2>
                   {topics
@@ -415,7 +416,7 @@ export default function ConfigureTopicsPage() {
               {/* Technical Topics Section */}
               {topics.some((t) => t.category === "technical" || !t.category) && (
                 <div style={{ marginBottom: "2.5rem" }}>
-                  <h2 style={{ marginBottom: "1rem", fontSize: "1.25rem", color: "#0f172a", borderBottom: "2px solid #3b82f6", paddingBottom: "0.5rem" }}>
+                  <h2 style={{ marginBottom: "1rem", fontSize: "1.25rem", color: "#1a1625", borderBottom: "2px solid #6953a3", paddingBottom: "0.5rem", fontWeight: 700 }}>
                     Technical Topics
                   </h2>
                   {topics
@@ -577,20 +578,22 @@ export default function ConfigureTopicsPage() {
           )}
         </div>
 
-        <div style={{ display: "flex", gap: "1rem", marginTop: "2rem" }}>
-          <button
-            type="button"
-            onClick={handleSaveAndContinue}
-            className="btn-primary"
-            disabled={saving || topics.length === 0}
-          >
-            {saving ? "Saving..." : "Save & Generate Questions"}
-          </button>
-          <Link href="/dashboard">
-            <button type="button" className="btn-secondary">
-              Cancel
+          <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", paddingTop: "2rem", borderTop: "1px solid #e8e0d0" }}>
+            <button
+              type="button"
+              onClick={handleSaveAndContinue}
+              className="btn-primary"
+              disabled={saving || topics.length === 0}
+              style={{ marginTop: 0 }}
+            >
+              {saving ? "Saving..." : "Save & Generate Questions"}
             </button>
-          </Link>
+            <Link href="/dashboard">
+              <button type="button" className="btn-secondary" style={{ marginTop: 0 }}>
+                Cancel
+              </button>
+            </Link>
+          </div>
         </div>
       </div>
     </div>
