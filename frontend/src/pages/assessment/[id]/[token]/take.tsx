@@ -144,8 +144,12 @@ export default function CandidateAssessmentPage() {
         setCurrentTypeQuestionIndex(typeIndex);
       }
     }
-    // Clear validation error when question changes
-    setAnswerValidationError(false);
+    // Clear validation error when question changes (but only if we're actually changing questions)
+    // Use a ref or delay to avoid clearing too early
+    const timeoutId = setTimeout(() => {
+      setAnswerValidationError(false);
+    }, 100);
+    return () => clearTimeout(timeoutId);
   }, [currentQuestionIndex, currentQuestionType, questionsByType, questions.length, getTypeIndexFromGlobalIndex]);
 
   useEffect(() => {
@@ -156,6 +160,7 @@ export default function CandidateAssessmentPage() {
       setTypeStartTime(Date.now());
     }
   }, [currentQuestionType, questionTypeTimes, completedTypes]);
+
 
   useEffect(() => {
     // Per-question-type timer
@@ -328,18 +333,35 @@ export default function CandidateAssessmentPage() {
       setAnswers([...answers, { questionIndex: currentQuestionIndex, answer: value, timeSpent }]);
     }
     
-    // Clear validation error when user starts typing
-    if (answerValidationError && value.trim().length > 0) {
+    // Clear validation error when user provides an answer (for both MCQ and text-based)
+    if (answerValidationError && validateAnswer(value)) {
       setAnswerValidationError(false);
     }
   };
 
   const validateAnswer = (answer: string): boolean => {
+    // For MCQ, answer will be like "A", "B", etc. (not empty)
+    // For text-based, answer should not be empty or only spaces
     return answer.trim().length > 0;
   };
 
+  const isCurrentQuestionAnswered = (): boolean => {
+    const currentAnswer = getCurrentAnswer();
+    return validateAnswer(currentAnswer);
+  };
+
   const handleNext = () => {
-    // Clear validation error when navigating
+    // Validate answer before moving to next question
+    const currentAnswer = getCurrentAnswer();
+    const currentQuestion = questions[currentQuestionIndex];
+    
+    // Check if answer is provided
+    if (!validateAnswer(currentAnswer)) {
+      setAnswerValidationError(true);
+      return;
+    }
+    
+    // Clear validation error if valid
     setAnswerValidationError(false);
     
     // Move to next question within current type
@@ -369,13 +391,17 @@ export default function CandidateAssessmentPage() {
     }
   };
 
-  const handleSubmitSection = () => {
-    // Validate answer for non-MCQ questions
-    const currentAnswer = getCurrentAnswer();
-    const currentQuestion = questions[currentQuestionIndex];
+  const handleSubmitSection = (e?: React.MouseEvent) => {
+    // Prevent submission if button is disabled
+    if (e?.currentTarget?.hasAttribute('disabled')) {
+      return;
+    }
     
-    // Only validate for non-MCQ questions
-    if (currentQuestion.type !== "MCQ" && !validateAnswer(currentAnswer)) {
+    // Validate answer for all question types
+    const currentAnswer = getCurrentAnswer();
+    
+    // Check if answer is provided (works for both MCQ and text-based)
+    if (!validateAnswer(currentAnswer)) {
       setAnswerValidationError(true);
       return;
     }
@@ -790,7 +816,7 @@ export default function CandidateAssessmentPage() {
                         padding: "0.75rem",
                         marginBottom: "0.5rem",
                         backgroundColor: getCurrentAnswer() === String.fromCharCode(65 + optIndex) ? "#eff6ff" : "#f8fafc",
-                        border: `2px solid ${getCurrentAnswer() === String.fromCharCode(65 + optIndex) ? "#3b82f6" : "#e2e8f0"}`,
+                        border: `2px solid ${getCurrentAnswer() === String.fromCharCode(65 + optIndex) ? "#3b82f6" : answerValidationError ? "#ef4444" : "#e2e8f0"}`,
                         borderRadius: "0.5rem",
                         cursor: "pointer",
                         transition: "all 0.2s",
@@ -809,6 +835,16 @@ export default function CandidateAssessmentPage() {
                       </span>
                     </label>
                   ))}
+                  {answerValidationError && (
+                    <p style={{
+                      color: "#ef4444",
+                      fontSize: "0.875rem",
+                      marginTop: "0.5rem",
+                      marginBottom: 0,
+                    }}>
+                      Please select an option before proceeding.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <>
@@ -820,9 +856,19 @@ export default function CandidateAssessmentPage() {
                       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                         e.preventDefault();
                         if (isLastQuestionInType) {
-                          handleSubmitSection();
+                          // Validate before submitting
+                          if (!isCurrentQuestionAnswered()) {
+                            setAnswerValidationError(true);
+                          } else {
+                            handleSubmitSection();
+                          }
                         } else {
-                          handleNext();
+                          // Validate before moving to next
+                          if (!isCurrentQuestionAnswered()) {
+                            setAnswerValidationError(true);
+                          } else {
+                            handleNext();
+                          }
                         }
                       }
                     }}
@@ -847,7 +893,7 @@ export default function CandidateAssessmentPage() {
                       marginTop: "0.5rem",
                       marginBottom: 0,
                     }}>
-                      Please enter your answer before submitting.
+                      Please enter your answer before proceeding.
                     </p>
                   )}
                 </>
@@ -871,31 +917,53 @@ export default function CandidateAssessmentPage() {
                     Back
                   </button>
                 )}
-                {!isLastQuestionInType && (
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    className="btn-primary"
-                    disabled={submitting}
-                    style={{ 
-                      padding: "0.5rem 1rem",
-                      fontSize: "0.875rem",
-                      flex: isFirstQuestionInType ? 1 : 2,
-                      marginLeft: isFirstQuestionInType ? "auto" : 0
-                    }}
-                  >
-                    Next
-                  </button>
-                )}
+                {!isLastQuestionInType && (() => {
+                  const currentAnswer = getCurrentAnswer();
+                  const isAnswerValid = isCurrentQuestionAnswered();
+                  const isDisabled = submitting || !isAnswerValid;
+                  
+                  return (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // Double-check validation
+                        if (!isCurrentQuestionAnswered()) {
+                          setAnswerValidationError(true);
+                          return;
+                        }
+                        handleNext();
+                      }}
+                      className="btn-primary"
+                      disabled={isDisabled}
+                      style={{ 
+                        padding: "0.5rem 1rem",
+                        fontSize: "0.875rem",
+                        flex: isFirstQuestionInType ? 1 : 2,
+                        marginLeft: isFirstQuestionInType ? "auto" : 0
+                      }}
+                    >
+                      Next
+                    </button>
+                  );
+                })()}
                 {isLastQuestionInType && (() => {
                   const currentAnswer = getCurrentAnswer();
-                  const isAnswerValid = currentQuestion.type === "MCQ" || validateAnswer(currentAnswer);
+                  const isAnswerValid = isCurrentQuestionAnswered();
                   const isDisabled = submitting || completedTypes.has(currentQuestionType) || !isAnswerValid;
                   
                   return (
                     <button
                       type="button"
-                      onClick={handleSubmitSection}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // Double-check validation even if button appears enabled
+                        if (!isCurrentQuestionAnswered()) {
+                          setAnswerValidationError(true);
+                          return;
+                        }
+                        handleSubmitSection(e);
+                      }}
                       className="btn-primary"
                       disabled={isDisabled}
                       style={{ 
