@@ -40,6 +40,7 @@ export default function CandidateAssessmentPage() {
   const [completedTypes, setCompletedTypes] = useState<Set<string>>(new Set());
   const [typeStartTime, setTypeStartTime] = useState<number>(Date.now());
   const [currentTypeQuestionIndex, setCurrentTypeQuestionIndex] = useState<number>(0);
+  const [answerValidationError, setAnswerValidationError] = useState<boolean>(false);
 
   useEffect(() => {
     // Get candidate info from sessionStorage
@@ -143,6 +144,8 @@ export default function CandidateAssessmentPage() {
         setCurrentTypeQuestionIndex(typeIndex);
       }
     }
+    // Clear validation error when question changes
+    setAnswerValidationError(false);
   }, [currentQuestionIndex, currentQuestionType, questionsByType, questions.length, getTypeIndexFromGlobalIndex]);
 
   useEffect(() => {
@@ -324,9 +327,21 @@ export default function CandidateAssessmentPage() {
     } else {
       setAnswers([...answers, { questionIndex: currentQuestionIndex, answer: value, timeSpent }]);
     }
+    
+    // Clear validation error when user starts typing
+    if (answerValidationError && value.trim().length > 0) {
+      setAnswerValidationError(false);
+    }
+  };
+
+  const validateAnswer = (answer: string): boolean => {
+    return answer.trim().length > 0;
   };
 
   const handleNext = () => {
+    // Clear validation error when navigating
+    setAnswerValidationError(false);
+    
     // Move to next question within current type
     const currentTypeQuestions = getCurrentTypeQuestions();
     if (currentTypeQuestionIndex < currentTypeQuestions.length - 1) {
@@ -340,6 +355,9 @@ export default function CandidateAssessmentPage() {
   };
 
   const handleBack = () => {
+    // Clear validation error when navigating
+    setAnswerValidationError(false);
+    
     // Move to previous question within current type
     if (currentTypeQuestionIndex > 0) {
       const prevTypeIndex = currentTypeQuestionIndex - 1;
@@ -352,6 +370,19 @@ export default function CandidateAssessmentPage() {
   };
 
   const handleSubmitSection = () => {
+    // Validate answer for non-MCQ questions
+    const currentAnswer = getCurrentAnswer();
+    const currentQuestion = questions[currentQuestionIndex];
+    
+    // Only validate for non-MCQ questions
+    if (currentQuestion.type !== "MCQ" && !validateAnswer(currentAnswer)) {
+      setAnswerValidationError(true);
+      return;
+    }
+    
+    // Clear validation error if valid
+    setAnswerValidationError(false);
+    
     // Mark current type as completed and move to next type
     setCompletedTypes(prev => {
       const newSet = new Set(prev);
@@ -780,22 +811,46 @@ export default function CandidateAssessmentPage() {
                   ))}
                 </div>
               ) : (
-                <textarea
-                  value={getCurrentAnswer()}
-                  onChange={(e) => handleAnswerChange(e.target.value)}
-                  placeholder="Enter your answer here..."
-                  rows={6}
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "0.5rem",
-                    fontSize: "0.875rem",
-                    fontFamily: "inherit",
-                    resize: "vertical",
-                    backgroundColor: "#ffffff",
-                  }}
-                />
+                <>
+                  <textarea
+                    value={getCurrentAnswer()}
+                    onChange={(e) => handleAnswerChange(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Handle Enter key submission (Ctrl+Enter or Cmd+Enter)
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        if (isLastQuestionInType) {
+                          handleSubmitSection();
+                        } else {
+                          handleNext();
+                        }
+                      }
+                    }}
+                    placeholder="Enter your answer here..."
+                    rows={6}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      border: answerValidationError ? "2px solid #ef4444" : "1px solid #e2e8f0",
+                      borderRadius: "0.5rem",
+                      fontSize: "0.875rem",
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                      backgroundColor: "#ffffff",
+                      transition: "border-color 0.2s ease",
+                    }}
+                  />
+                  {answerValidationError && (
+                    <p style={{
+                      color: "#ef4444",
+                      fontSize: "0.875rem",
+                      marginTop: "0.5rem",
+                      marginBottom: 0,
+                    }}>
+                      Please enter your answer before submitting.
+                    </p>
+                  )}
+                </>
               )}
           </div>
 
@@ -832,22 +887,28 @@ export default function CandidateAssessmentPage() {
                     Next
                   </button>
                 )}
-                {isLastQuestionInType && (
-                  <button
-                    type="button"
-                    onClick={handleSubmitSection}
-                    className="btn-primary"
-                    disabled={submitting || completedTypes.has(currentQuestionType)}
-                    style={{ 
-                      padding: "0.5rem 1rem",
-                      fontSize: "0.875rem",
-                      flex: isFirstQuestionInType ? 1 : 2,
-                      marginLeft: isFirstQuestionInType ? "auto" : 0
-                    }}
-                  >
-                    {isLastType ? (submitting ? "Submitting..." : "Finalize Assessment") : "Submit Section & Continue"}
-                  </button>
-                )}
+                {isLastQuestionInType && (() => {
+                  const currentAnswer = getCurrentAnswer();
+                  const isAnswerValid = currentQuestion.type === "MCQ" || validateAnswer(currentAnswer);
+                  const isDisabled = submitting || completedTypes.has(currentQuestionType) || !isAnswerValid;
+                  
+                  return (
+                    <button
+                      type="button"
+                      onClick={handleSubmitSection}
+                      className="btn-primary"
+                      disabled={isDisabled}
+                      style={{ 
+                        padding: "0.5rem 1rem",
+                        fontSize: "0.875rem",
+                        flex: isFirstQuestionInType ? 1 : 2,
+                        marginLeft: isFirstQuestionInType ? "auto" : 0
+                      }}
+                    >
+                      {isLastType ? (submitting ? "Submitting..." : "Finalize Assessment") : "Submit Section & Continue"}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           </div>
