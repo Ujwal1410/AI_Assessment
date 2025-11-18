@@ -546,6 +546,90 @@ CRITICAL REMINDERS:
     return validated_questions
 
 
+async def suggest_time_and_score(question: Dict[str, Any]) -> Dict[str, Any]:
+    """Suggest time (in minutes) and score for a question based on its type and difficulty."""
+    question_type = question.get("type", "Subjective")
+    difficulty = question.get("difficulty", "Medium")
+    question_text = question.get("questionText", "")
+    
+    prompt = f"""
+You are an expert assessment evaluator. Based on the following question, suggest appropriate time (in minutes) and score (points).
+
+Question Type: {question_type}
+Difficulty: {difficulty}
+Question: {question_text[:200]}...
+
+Provide your suggestion in the following format:
+- Time: [number] minutes (considering the question type and difficulty)
+- Score: [number] points (considering the question complexity and importance)
+
+Guidelines:
+- MCQ questions: Usually 1-3 minutes, 1-2 points
+- Subjective questions: 5-15 minutes, 3-10 points depending on difficulty
+- Pseudo Code questions: 10-20 minutes, 5-15 points depending on difficulty
+- Descriptive questions: 10-20 minutes, 5-15 points depending on difficulty
+- Easy difficulty: Lower time and score
+- Medium difficulty: Moderate time and score
+- Hard difficulty: Higher time and score
+
+Respond ONLY with a JSON object in this exact format:
+{{"time": <number>, "score": <number>}}
+"""
+
+    client = _get_client()
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+    except Exception as exc:
+        # Fallback to default values
+        defaults = {
+            "MCQ": {"time": 2, "score": 1},
+            "Subjective": {"time": 10, "score": 5},
+            "Pseudo Code": {"time": 15, "score": 10},
+            "Descriptive": {"time": 15, "score": 10},
+        }
+        difficulty_multiplier = {"Easy": 0.7, "Medium": 1.0, "Hard": 1.5}
+        base = defaults.get(question_type, {"time": 10, "score": 5})
+        multiplier = difficulty_multiplier.get(difficulty, 1.0)
+        return {
+            "time": int(base["time"] * multiplier),
+            "score": int(base["score"] * multiplier),
+        }
+    
+    text = response.choices[0].message.content.strip() if response.choices else ""
+    
+    # Try to parse JSON from response
+    try:
+        import json
+        # Extract JSON from text
+        if "{" in text and "}" in text:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            parsed = json.loads(text[start:end])
+            if "time" in parsed and "score" in parsed:
+                return {"time": int(parsed["time"]), "score": int(parsed["score"])}
+    except:
+        pass
+    
+    # Fallback
+    defaults = {
+        "MCQ": {"time": 2, "score": 1},
+        "Subjective": {"time": 10, "score": 5},
+        "Pseudo Code": {"time": 15, "score": 10},
+        "Descriptive": {"time": 15, "score": 10},
+    }
+    difficulty_multiplier = {"Easy": 0.7, "Medium": 1.0, "Hard": 1.5}
+    base = defaults.get(question_type, {"time": 10, "score": 5})
+    multiplier = difficulty_multiplier.get(difficulty, 1.0)
+    return {
+        "time": int(base["time"] * multiplier),
+        "score": int(base["score"] * multiplier),
+    }
+
+
 async def generate_questions_for_topic_safe(topic: str, config: Dict[str, Any]) -> List[Dict[str, Any]]:
     try:
         result = await generate_questions_for_topic(topic, config)

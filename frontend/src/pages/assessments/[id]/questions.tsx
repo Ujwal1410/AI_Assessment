@@ -13,6 +13,8 @@ interface Question {
   expectedLogic?: string;
   topic?: string;
   questionIndex?: number;
+  time?: number;
+  score?: number;
 }
 
 interface Topic {
@@ -67,11 +69,25 @@ export default function QuestionsPage() {
           });
         }
 
+        // Questions might be in data.questions array OR inside topics
         if (data.questions && Array.isArray(data.questions)) {
           data.questions.forEach((question: any) => {
             const topicName = question.topic;
             if (topicsMap[topicName]) {
               topicsMap[topicName].questions.push(question);
+            }
+          });
+        }
+
+        // Also check if questions are directly in topics (this is the main source)
+        if (data.topics && Array.isArray(data.topics)) {
+          data.topics.forEach((topic: any) => {
+            if (topic.questions && Array.isArray(topic.questions) && topic.questions.length > 0) {
+              const topicName = topic.topic;
+              if (topicsMap[topicName]) {
+                // Replace questions array with questions from topic
+                topicsMap[topicName].questions = topic.questions;
+              }
             }
           });
         }
@@ -125,6 +141,7 @@ export default function QuestionsPage() {
       setGenerating(false);
     }
   };
+
 
   const handleFinalize = async () => {
     if (!finalTitle.trim()) {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +31,8 @@ class Question(BaseModel):
     correctAnswer: Optional[str] = None
     idealAnswer: Optional[str] = None
     expectedLogic: Optional[str] = None
+    time: Optional[int] = None  # Time in minutes
+    score: Optional[int] = None  # Score in points
     createdAt: Optional[datetime] = None
     updatedAt: Optional[datetime] = None
 
@@ -120,6 +122,7 @@ class FinalizeAssessmentRequest(BaseModel):
     assessmentId: str
     title: Optional[str] = None
     description: Optional[str] = None
+    questionTypeTimes: Optional[Dict[str, int]] = None  # Time in minutes per question type
 
 
 # New flow schemas

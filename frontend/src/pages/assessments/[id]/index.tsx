@@ -3,12 +3,27 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import axios from "axios";
 
+interface CandidateResult {
+  email: string;
+  name: string;
+  score: number;
+  maxScore: number;
+  attempted: number;
+  notAttempted: number;
+  correctAnswers: number;
+  submittedAt: string;
+}
+
 export default function AssessmentDetailPage() {
   const router = useRouter();
   const { id } = router.query;
   const [assessment, setAssessment] = useState<any>(null);
+  const [candidateResults, setCandidateResults] = useState<CandidateResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showResults, setShowResults] = useState(false);
+  const [resultsError, setResultsError] = useState<string | null>(null);
+  const [loadingResults, setLoadingResults] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -23,6 +38,23 @@ export default function AssessmentDetailPage() {
       const response = await axios.get(`/api/assessments/get-questions?assessmentId=${id}`);
       if (response.data?.success && response.data?.data) {
         setAssessment(response.data.data);
+      }
+      
+      // Fetch candidate results
+      setLoadingResults(true);
+      setResultsError(null);
+      try {
+        const resultsResponse = await axios.get(`/api/assessments/get-candidate-results?assessmentId=${id}`);
+        if (resultsResponse.data?.success) {
+          setCandidateResults(resultsResponse.data.data || []);
+        } else {
+          setResultsError(resultsResponse.data?.message || "Failed to load candidate results");
+        }
+      } catch (err: any) {
+        console.error("Error fetching candidate results:", err);
+        setResultsError(err.response?.data?.message || err.message || "Failed to load candidate results");
+      } finally {
+        setLoadingResults(false);
       }
     } catch (err: any) {
       console.error("Error fetching assessment:", err);
@@ -119,7 +151,7 @@ export default function AssessmentDetailPage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "1rem" }}>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", marginBottom: "2rem" }}>
           {assessment.assessment?.status === "draft" && (
             <>
               <Link href={`/assessments/${id}/configure`}>
@@ -141,7 +173,117 @@ export default function AssessmentDetailPage() {
               </button>
             </Link>
           )}
+          <button
+            type="button"
+            onClick={() => setShowResults(!showResults)}
+            className="btn-secondary"
+            disabled={loadingResults}
+          >
+            {loadingResults
+              ? "Loading Results..."
+              : showResults
+              ? "Hide"
+              : "Show"} Candidate Results {!loadingResults && `(${candidateResults.length})`}
+          </button>
         </div>
+
+        {/* Candidate Results Section */}
+        {showResults && (
+          <div style={{ marginTop: "2rem", paddingTop: "2rem", borderTop: "2px solid #e2e8f0" }}>
+            <h2 style={{ marginBottom: "1.5rem", fontSize: "1.5rem", color: "#1a1625", fontWeight: 700 }}>
+              Candidate Results
+            </h2>
+            
+            {loadingResults ? (
+              <div style={{ textAlign: "center", padding: "2rem" }}>
+                <p style={{ color: "#64748b" }}>Loading candidate results...</p>
+              </div>
+            ) : resultsError ? (
+              <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
+                {resultsError}
+                <button
+                  type="button"
+                  onClick={fetchAssessment}
+                  className="btn-secondary"
+                  style={{ marginTop: "0.5rem" }}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : candidateResults.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
+                <p>No candidate results yet. Results will appear here once candidates submit their assessments.</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ backgroundColor: "#f8fafc" }}>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Candidate Name
+                      </th>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Email
+                      </th>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Score
+                      </th>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Attempted
+                      </th>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Not Attempted
+                      </th>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Correct Answers
+                      </th>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Submitted At
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {candidateResults.map((result, index) => (
+                      <tr key={index} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                        <td style={{ padding: "1rem" }}>{result.name}</td>
+                        <td style={{ padding: "1rem" }}>{result.email}</td>
+                        <td style={{ padding: "1rem" }}>
+                          <span style={{ fontWeight: 600, color: "#1e293b" }}>
+                            {result.score} / {result.maxScore}
+                          </span>
+                          <span style={{ marginLeft: "0.5rem", color: "#64748b", fontSize: "0.875rem" }}>
+                            ({result.maxScore > 0 ? Math.round((result.score / result.maxScore) * 100) : 0}%)
+                          </span>
+                        </td>
+                        <td style={{ padding: "1rem" }}>
+                          <span style={{ color: "#10b981", fontWeight: 600 }}>{result.attempted}</span>
+                        </td>
+                        <td style={{ padding: "1rem" }}>
+                          <span style={{ color: "#ef4444", fontWeight: 600 }}>{result.notAttempted}</span>
+                        </td>
+                        <td style={{ padding: "1rem" }}>
+                          <span style={{ color: "#3b82f6", fontWeight: 600 }}>{result.correctAnswers}</span>
+                        </td>
+                        <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b" }}>
+                          {result.submittedAt
+                            ? new Date(result.submittedAt).toLocaleString("en-IN", {
+                                timeZone: "Asia/Kolkata",
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "N/A"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -36,6 +36,7 @@ from ..services.ai import (
     generate_topic_cards_from_job_designation,
     get_relevant_question_types,
     get_relevant_question_types_from_domain,
+    suggest_time_and_score,
 )
 from ..utils.mongo import convert_object_ids, serialize_document, to_object_id
 from ..utils.responses import success_response
@@ -551,6 +552,24 @@ async def create_assessment_from_skill(
         raise HTTPException(status_code=500, detail="Failed to create assessment") from exc
 
 
+@router.post("/suggest-time-score")
+async def suggest_time_score(
+    payload: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(require_editor),
+):
+    """Get AI suggestions for time and score for a question."""
+    question = payload.get("question")
+    if not question:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Question is required")
+    
+    try:
+        suggestion = await suggest_time_and_score(question)
+        return success_response("Time and score suggested successfully", suggestion)
+    except Exception as exc:
+        logger.error(f"Error suggesting time and score: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to suggest time and score") from exc
+
+
 @router.post("/generate-questions-from-config")
 async def generate_questions_from_config(
     payload: GenerateQuestionsFromConfigRequest,
@@ -600,8 +619,17 @@ async def generate_questions_from_config(
         try:
             questions = await generate_questions_for_topic_safe(topic_config.topic, config)
             if questions:
+                # Auto-generate time and score for each question
                 for q in questions:
                     q["topic"] = topic_config.topic
+                    try:
+                        time_score = await suggest_time_and_score(q)
+                        q["time"] = time_score.get("time", 10)
+                        q["score"] = time_score.get("score", 5)
+                    except Exception as exc:
+                        logger.warning(f"Failed to generate time/score for question, using defaults: {exc}")
+                        q["time"] = 10
+                        q["score"] = 5
                 topic_obj["questions"] = questions
                 all_questions.extend(questions)
             else:
@@ -713,6 +741,18 @@ async def generate_questions(
                     merged.update(new_question)
                 else:
                     merged = new_question
+                
+                # Auto-generate time and score if not already set
+                if "time" not in merged or "score" not in merged:
+                    try:
+                        time_score = await suggest_time_and_score(merged)
+                        merged["time"] = time_score.get("time", 10)
+                        merged["score"] = time_score.get("score", 5)
+                    except Exception as exc:
+                        logger.warning(f"Failed to generate time/score for question, using defaults: {exc}")
+                        merged["time"] = merged.get("time", 10)
+                        merged["score"] = merged.get("score", 5)
+                
                 merged_questions.append(merged)
             topic["questions"] = merged_questions
             results.append({"topic": topic.get("topic"), "questions": merged_questions, "expected": expected_count, "generated": len(merged_questions)})
@@ -760,6 +800,7 @@ async def update_questions(
     if not topic:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Topic not found in assessment")
 
+    # Update questions, preserving all properties including time and score
     topic["questions"] = [q.model_dump(exclude_unset=True) for q in payload.updatedQuestions]
     assessment["status"] = "draft"
     await _save_assessment(db, assessment)
@@ -881,6 +922,8 @@ async def finalize_assessment(
             assessment["title"] = payload.title
         if payload.description:
             assessment["description"] = payload.description
+        if payload.questionTypeTimes:
+            assessment["questionTypeTimes"] = payload.questionTypeTimes
         assessment["finalizedAt"] = _now_utc()
         await _save_assessment(db, assessment)
         
@@ -1054,6 +1097,34 @@ async def get_topics(
     assessment = await _get_assessment(db, assessment_id)
     _check_assessment_access(assessment, current_user)
     return success_response("Topics fetched successfully", assessment.get("topics", []))
+
+
+@router.get("/{assessment_id}/candidate-results")
+async def get_candidate_results(
+    assessment_id: str,
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Get candidate results for an assessment."""
+    assessment = await _get_assessment(db, assessment_id)
+    _check_assessment_access(assessment, current_user)
+
+    candidate_responses = assessment.get("candidateResponses", {})
+    results = []
+    
+    for key, response in candidate_responses.items():
+        results.append({
+            "email": response.get("email"),
+            "name": response.get("name"),
+            "score": response.get("score", 0),
+            "maxScore": response.get("maxScore", 0),
+            "attempted": response.get("attempted", 0),
+            "notAttempted": response.get("notAttempted", 0),
+            "correctAnswers": response.get("correctAnswers", 0),
+            "submittedAt": response.get("submittedAt"),
+        })
+    
+    return success_response("Candidate results fetched successfully", results)
 
 
 @router.get("/{assessment_id}/questions")

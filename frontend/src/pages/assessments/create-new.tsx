@@ -39,6 +39,7 @@ export default function CreateNewAssessmentPage() {
   const [candidateEmail, setCandidateEmail] = useState("");
   const [candidateName, setCandidateName] = useState("");
   const [assessmentUrl, setAssessmentUrl] = useState<string | null>(null);
+  const [questionTypeTimes, setQuestionTypeTimes] = useState<{ [key: string]: number }>({});
 
   const sliderRef = useRef<HTMLDivElement>(null);
   const minHandleRef = useRef<HTMLDivElement>(null);
@@ -357,6 +358,7 @@ export default function CreateNewAssessmentPage() {
     }
   };
 
+
   const handleFinalize = async () => {
     if (!finalTitle.trim()) {
       setError("Title is required");
@@ -391,11 +393,12 @@ export default function CreateNewAssessmentPage() {
         }
       }
 
-      // Then finalize
+      // Then finalize with questionTypeTimes
       const response = await axios.post("/api/assessments/finalize", {
         assessmentId,
         title: finalTitle.trim(),
         description: finalDescription.trim() || undefined,
+        questionTypeTimes: questionTypeTimes,
       });
 
       if (response.data?.success) {
@@ -912,7 +915,7 @@ export default function CreateNewAssessmentPage() {
                 Review Questions
               </h1>
               <p style={{ color: "#6b6678", marginBottom: "2rem", fontSize: "1rem" }}>
-                Review and remove questions if needed, then finalize your assessment
+                Review questions grouped by type and set time for each question type
               </p>
 
               {questions.length === 0 ? (
@@ -921,95 +924,225 @@ export default function CreateNewAssessmentPage() {
                 </div>
               ) : (
                 <div style={{ marginBottom: "2rem" }}>
-                  {questions.map((question, index) => (
-                    <div
-                      key={index}
-                      style={{
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "0.75rem",
-                        padding: "1.5rem",
-                        marginBottom: "1rem",
-                        backgroundColor: "#ffffff",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "1rem" }}>
-                        <div>
-                          <span
-                            style={{
-                              backgroundColor: "#6953a3",
-                              color: "#ffffff",
-                              padding: "0.25rem 0.75rem",
-                              borderRadius: "9999px",
-                              fontSize: "0.75rem",
-                              fontWeight: 700,
-                              marginRight: "0.5rem",
-                            }}
-                          >
-                            Q{index + 1}
-                          </span>
-                          <span
-                            style={{
-                              backgroundColor: "#eff6ff",
-                              color: "#1e40af",
-                              padding: "0.25rem 0.75rem",
-                              borderRadius: "9999px",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              marginRight: "0.5rem",
-                            }}
-                          >
-                            {question.type}
-                          </span>
-                          <span
-                            style={{
-                              backgroundColor: "#fef3c7",
-                              color: "#92400e",
-                              padding: "0.25rem 0.75rem",
-                              borderRadius: "9999px",
-                              fontSize: "0.75rem",
-                              fontWeight: 500,
-                            }}
-                          >
-                            {question.difficulty}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveQuestion(index)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#ef4444",
-                            cursor: "pointer",
-                            fontSize: "1.125rem",
-                            padding: "0.25rem",
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                      <p style={{ color: "#1e293b", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>
-                        {question.questionText}
-                      </p>
-                      {question.options && (
-                        <div style={{ marginTop: "1rem" }}>
-                          {question.options.map((option: string, optIndex: number) => (
-                            <div
-                              key={optIndex}
-                              style={{
-                                padding: "0.5rem",
-                                backgroundColor: "#f8fafc",
-                                borderRadius: "0.5rem",
-                                marginBottom: "0.5rem",
-                              }}
-                            >
-                              {String.fromCharCode(65 + optIndex)}. {option}
+                  {/* Group questions by type */}
+                  {(() => {
+                    const questionsByType: { [key: string]: any[] } = {};
+                    questions.forEach((q) => {
+                      const type = q.type || "Other";
+                      if (!questionsByType[type]) {
+                        questionsByType[type] = [];
+                      }
+                      questionsByType[type].push(q);
+                    });
+
+                    // Initialize questionTypeTimes if not set
+                    Object.keys(questionsByType).forEach((type) => {
+                      if (!questionTypeTimes[type]) {
+                        setQuestionTypeTimes((prev) => ({
+                          ...prev,
+                          [type]: 10, // Default 10 minutes per type
+                        }));
+                      }
+                    });
+
+                    return Object.entries(questionsByType).map(([questionType, typeQuestions]) => {
+                      const typeTime = questionTypeTimes[questionType] || 10;
+                      const totalScore = typeQuestions.reduce((sum, q) => sum + (q.score || 5), 0);
+                      let questionIndex = 0;
+                      questions.forEach((q) => {
+                        if (q.type === questionType) {
+                          q._displayIndex = questionIndex++;
+                        }
+                      });
+
+                      return (
+                        <div key={questionType} style={{ marginBottom: "2rem" }}>
+                          <div style={{ 
+                            display: "flex", 
+                            justifyContent: "space-between", 
+                            alignItems: "center",
+                            marginBottom: "1rem",
+                            padding: "1rem",
+                            backgroundColor: "#f8fafc",
+                            borderRadius: "0.5rem",
+                            border: "1px solid #e2e8f0"
+                          }}>
+                            <div>
+                              <h3 style={{ margin: 0, fontSize: "1.25rem", color: "#1a1625", fontWeight: 700 }}>
+                                {questionType} Questions
+                              </h3>
+                              <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+                                {typeQuestions.length} question{typeQuestions.length !== 1 ? "s" : ""} • Total Score: {totalScore} points
+                              </p>
                             </div>
-                          ))}
+                            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#1e293b", fontWeight: 600 }}>
+                                Time (minutes):
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={typeTime}
+                                  onChange={(e) => {
+                                    setQuestionTypeTimes((prev) => ({
+                                      ...prev,
+                                      [questionType]: parseInt(e.target.value) || 10,
+                                    }));
+                                  }}
+                                  style={{
+                                    width: "80px",
+                                    padding: "0.5rem",
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: "0.5rem",
+                                    fontSize: "0.875rem",
+                                  }}
+                                />
+                              </label>
+                            </div>
+                          </div>
+
+                          {/* Questions Table for this type */}
+                          <div style={{ overflowX: "auto", marginBottom: "1.5rem" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", backgroundColor: "#ffffff", borderRadius: "0.5rem", overflow: "hidden", border: "1px solid #e2e8f0" }}>
+                              <thead>
+                                <tr style={{ backgroundColor: "#f8fafc" }}>
+                                  <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                                    Question
+                                  </th>
+                                  <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b", width: "120px" }}>
+                                    Score (points)
+                                  </th>
+                                  <th style={{ padding: "1rem", textAlign: "center", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b", width: "60px" }}>
+                                    Action
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {typeQuestions.map((question, typeIndex) => {
+                                  const globalIndex = questions.findIndex((q) => q === question);
+                                  return (
+                                    <tr key={globalIndex} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                                      <td style={{ padding: "1rem", maxWidth: "500px" }}>
+                                        <div style={{ marginBottom: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                                          <span
+                                            style={{
+                                              backgroundColor: "#6953a3",
+                                              color: "#ffffff",
+                                              padding: "0.25rem 0.75rem",
+                                              borderRadius: "9999px",
+                                              fontSize: "0.75rem",
+                                              fontWeight: 700,
+                                            }}
+                                          >
+                                            Q{globalIndex + 1}
+                                          </span>
+                                          <span
+                                            style={{
+                                              backgroundColor: "#fef3c7",
+                                              color: "#92400e",
+                                              padding: "0.25rem 0.75rem",
+                                              borderRadius: "9999px",
+                                              fontSize: "0.75rem",
+                                              fontWeight: 500,
+                                            }}
+                                          >
+                                            {question.difficulty}
+                                          </span>
+                                        </div>
+                                        <p style={{ color: "#1e293b", lineHeight: 1.6, whiteSpace: "pre-wrap", margin: 0, fontSize: "0.9375rem" }}>
+                                          {question.questionText}
+                                        </p>
+                                        {question.options && question.options.length > 0 && (
+                                          <div style={{ marginTop: "0.75rem", fontSize: "0.875rem", color: "#64748b" }}>
+                                            {question.options.slice(0, 2).map((option: string, optIndex: number) => (
+                                              <div key={optIndex} style={{ marginBottom: "0.25rem" }}>
+                                                {String.fromCharCode(65 + optIndex)}. {option.substring(0, 50)}{option.length > 50 ? "..." : ""}
+                                              </div>
+                                            ))}
+                                            {question.options.length > 2 && (
+                                              <div style={{ fontStyle: "italic" }}>+{question.options.length - 2} more options</div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: "1rem" }}>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={question.score || 5}
+                                          onChange={(e) => {
+                                            const updated = [...questions];
+                                            updated[globalIndex] = { ...updated[globalIndex], score: parseInt(e.target.value) || 5 };
+                                            setQuestions(updated);
+                                          }}
+                                          style={{
+                                            width: "100%",
+                                            padding: "0.5rem",
+                                            border: "1px solid #e2e8f0",
+                                            borderRadius: "0.5rem",
+                                            fontSize: "0.875rem",
+                                          }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: "1rem", textAlign: "center" }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveQuestion(globalIndex)}
+                                          style={{
+                                            background: "none",
+                                            border: "none",
+                                            color: "#ef4444",
+                                            cursor: "pointer",
+                                            fontSize: "1.25rem",
+                                            padding: "0.25rem 0.5rem",
+                                            borderRadius: "0.25rem",
+                                            transition: "background-color 0.2s",
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            e.currentTarget.style.backgroundColor = "#fef2f2";
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.currentTarget.style.backgroundColor = "transparent";
+                                          }}
+                                          title="Remove question"
+                                        >
+                                          ×
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
-                      )}
+                      );
+                    });
+                  })()}
+                  
+                  {/* Total Summary */}
+                  <div style={{ 
+                    display: "flex", 
+                    justifyContent: "space-between", 
+                    alignItems: "center",
+                    padding: "1rem 1.5rem",
+                    backgroundColor: "#f8fafc",
+                    borderRadius: "0.5rem",
+                    border: "1px solid #e2e8f0",
+                    marginTop: "1rem"
+                  }}>
+                    <div>
+                      <span style={{ color: "#64748b", fontSize: "0.875rem", marginRight: "0.5rem" }}>Total Score:</span>
+                      <span style={{ color: "#1e293b", fontSize: "1.125rem", fontWeight: 700 }}>
+                        {questions.reduce((sum, q) => sum + (q.score || 5), 0)} points
+                      </span>
                     </div>
-                  ))}
+                    <div>
+                      <span style={{ color: "#64748b", fontSize: "0.875rem", marginRight: "0.5rem" }}>Total Time (All Types):</span>
+                      <span style={{ color: "#1e293b", fontSize: "1.125rem", fontWeight: 700 }}>
+                        {Object.values(questionTypeTimes).reduce((sum, time) => sum + time, 0)} minutes
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
 

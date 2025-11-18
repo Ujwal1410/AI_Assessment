@@ -31,9 +31,9 @@ export default function CandidateEntryPage() {
       });
 
       if (response.data?.success) {
-        // Store candidate info in session/localStorage
-        localStorage.setItem("candidateEmail", email.trim());
-        localStorage.setItem("candidateName", name.trim());
+        // Store candidate info in sessionStorage
+        sessionStorage.setItem("candidateEmail", email.trim());
+        sessionStorage.setItem("candidateName", name.trim());
         // Redirect to assessment page
         router.push(`/assessment/${id}/${token}/take`);
       } else {
