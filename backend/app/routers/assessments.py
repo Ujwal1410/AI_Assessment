@@ -924,6 +924,8 @@ async def finalize_assessment(
             assessment["description"] = payload.description
         if payload.questionTypeTimes:
             assessment["questionTypeTimes"] = payload.questionTypeTimes
+        if payload.enablePerSectionTimers is not None:
+            assessment["enablePerSectionTimers"] = payload.enablePerSectionTimers
         assessment["finalizedAt"] = _now_utc()
         await _save_assessment(db, assessment)
         
@@ -1097,6 +1099,88 @@ async def get_topics(
     assessment = await _get_assessment(db, assessment_id)
     _check_assessment_access(assessment, current_user)
     return success_response("Topics fetched successfully", assessment.get("topics", []))
+
+
+@router.get("/{assessment_id}/answer-logs")
+async def get_answer_logs(
+    assessment_id: str,
+    candidateEmail: str = Query(...),
+    candidateName: str = Query(...),
+    current_user: Dict[str, Any] = Depends(require_editor),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Get answer logs for a specific candidate."""
+    try:
+        assessment = await _get_assessment(db, assessment_id)
+        _check_assessment_access(assessment, current_user)
+
+        candidate_key = f"{candidateEmail.strip().lower()}_{candidateName.strip()}"
+        answer_logs = assessment.get("answerLogs")
+        if not answer_logs or not isinstance(answer_logs, dict):
+            return success_response("Answer logs fetched successfully", [])
+        
+        candidate_logs = answer_logs.get(candidate_key, {})
+        if not candidate_logs or not isinstance(candidate_logs, dict):
+            return success_response("Answer logs fetched successfully", [])
+
+        # Collect all questions to map question indices
+        all_questions = []
+        for topic in assessment.get("topics", []):
+            if not topic or not isinstance(topic, dict):
+                continue
+            topic_questions = topic.get("questions", [])
+            if topic_questions and isinstance(topic_questions, list):
+                for question in topic_questions:
+                    if question and isinstance(question, dict):
+                        all_questions.append(question)
+
+        # Format logs with question details
+        formatted_logs = []
+        for question_index_str, log_entries in candidate_logs.items():
+            try:
+                if not isinstance(log_entries, list):
+                    logger.warning(f"Log entries for question {question_index_str} is not a list, skipping")
+                    continue
+                    
+                question_index = int(question_index_str)
+                if 0 <= question_index < len(all_questions):
+                    question = all_questions[question_index]
+                    # Serialize log entries to ensure they're JSON-serializable
+                    serialized_logs = []
+                    for log_entry in log_entries:
+                        if isinstance(log_entry, dict):
+                            serialized_logs.append({
+                                "answer": str(log_entry.get("answer", "")),
+                                "questionType": str(log_entry.get("questionType", "")),
+                                "timestamp": str(log_entry.get("timestamp", "")),
+                                "version": int(log_entry.get("version", 0)),
+                            })
+                    
+                    formatted_logs.append({
+                        "questionIndex": question_index,
+                        "questionText": str(question.get("questionText", "")),
+                        "questionType": str(question.get("type", "")),
+                        "logs": serialized_logs,  # Already in order (version 1, 2, 3, etc.)
+                    })
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid question index in logs: {question_index_str}, error: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"Error processing log entry for question {question_index_str}: {e}")
+                continue
+
+        # Sort by question index
+        formatted_logs.sort(key=lambda x: x["questionIndex"])
+
+        return success_response("Answer logs fetched successfully", formatted_logs)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error fetching answer logs: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch answer logs: {str(exc)}",
+        ) from exc
 
 
 @router.get("/{assessment_id}/candidate-results")

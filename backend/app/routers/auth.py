@@ -5,14 +5,17 @@ import random
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from ..core.config import get_settings
-from ..core.security import create_access_token, get_password_hash, verify_password
+from ..core.security import create_access_token, create_refresh_token, get_password_hash, verify_password
 from ..db.mongo import get_db
 from ..schemas.auth import (
     GoogleSignupRequest,
@@ -30,6 +33,20 @@ from ..utils.responses import success_response
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Rate limiter instance (will be initialized in main.py)
+limiter: Limiter | None = None
+
+def set_limiter(limiter_instance: Limiter):
+    """Set the rate limiter instance from main.py"""
+    global limiter
+    limiter = limiter_instance
+
+def _apply_rate_limit(func):
+    """Apply rate limiting decorator if limiter is available."""
+    if limiter:
+        return limiter.limit("10/15minutes")(func)
+    return func
 
 
 def _normalize_email(email: str) -> str:
@@ -322,13 +339,90 @@ async def org_signup_google(
     )
 
 
+async def _check_account_lockout(db: AsyncIOMotorDatabase, email: str) -> tuple[bool, str | None]:
+    """Check if account is locked. Returns (is_locked, lockout_message)."""
+    settings = get_settings()
+    normalized = _normalize_email(email)
+    user = await _find_user_by_email(db, normalized)
+    
+    if not user:
+        return False, None
+    
+    failed_attempts = user.get("failedLoginAttempts", 0)
+    lockout_until = user.get("lockoutUntil")
+    
+    if lockout_until:
+        lockout_time = lockout_until
+        if isinstance(lockout_time, str):
+            try:
+                lockout_time = datetime.fromisoformat(lockout_time.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                # Fallback: try parsing with datetime.strptime
+                try:
+                    lockout_time = datetime.strptime(lockout_time, "%Y-%m-%dT%H:%M:%S.%fZ")
+                    lockout_time = lockout_time.replace(tzinfo=timezone.utc)
+                except (ValueError, AttributeError):
+                    logger.warning(f"Could not parse lockout_until: {lockout_until}")
+                    return False, None
+        if lockout_time.tzinfo is None:
+            lockout_time = lockout_time.replace(tzinfo=timezone.utc)
+        
+        if datetime.now(timezone.utc) < lockout_time:
+            remaining_minutes = int((lockout_time - datetime.now(timezone.utc)).total_seconds() / 60)
+            return True, f"Account is temporarily locked due to too many failed login attempts. Please try again in {remaining_minutes} minutes."
+        else:
+            # Lockout expired, clear it
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$unset": {"lockoutUntil": "", "failedLoginAttempts": 0}}
+            )
+    
+    if failed_attempts >= settings.max_failed_attempts:
+        # Lock account
+        lockout_until = datetime.now(timezone.utc) + timedelta(minutes=settings.lockout_duration_minutes)
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"lockoutUntil": lockout_until}}
+        )
+        return True, f"Account is temporarily locked due to too many failed login attempts. Please try again in {settings.lockout_duration_minutes} minutes."
+    
+    return False, None
+
+
+async def _increment_failed_attempts(db: AsyncIOMotorDatabase, email: str) -> None:
+    """Increment failed login attempts for a user."""
+    normalized = _normalize_email(email)
+    user = await _find_user_by_email(db, normalized)
+    if user:
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$inc": {"failedLoginAttempts": 1}}
+        )
+
+
+async def _clear_failed_attempts(db: AsyncIOMotorDatabase, email: str) -> None:
+    """Clear failed login attempts on successful login."""
+    normalized = _normalize_email(email)
+    user = await _find_user_by_email(db, normalized)
+    if user:
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$unset": {"failedLoginAttempts": "", "lockoutUntil": ""}}
+        )
+
+
 def _build_login_success_response(user: dict) -> JSONResponse:
-    token = create_access_token(str(user["_id"]), user.get("role", "pending"))
+    """Build login success response with access and refresh tokens."""
+    from ..core.security import create_refresh_token
+    
+    access_token = create_access_token(str(user["_id"]), user.get("role", "pending"))
+    refresh_token = create_refresh_token(str(user["_id"]), user.get("role", "pending"))
     user_data = serialize_document(user)
     return success_response(
         "Login successful",
         {
-            "token": token,
+            "token": access_token,
+            "refreshToken": refresh_token,
             "user": {
                 "id": user_data["id"],
                 "name": user_data.get("name"),
@@ -410,8 +504,10 @@ async def send_verification_code(
     return success_response("Verification code sent successfully", {"email": email})
 
 
+@_apply_rate_limit
 @router.post("/verify-email-code")
 async def verify_email_code(
+    request: Request,
     payload: VerifyEmailCodeRequest,
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
@@ -475,23 +571,47 @@ async def verify_email_code(
     return success_response("Email verified successfully", {"verified": True, "accountCreated": False})
 
 
+@_apply_rate_limit
 @router.post("/superadmin-login")
 async def super_admin_login(
+    request: Request,
     payload: LoginRequest,
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
+    """Super admin login with rate limiting, account lockout, and generic error messages."""
+    settings = get_settings()
+    
     email = _normalize_email(payload.email)
+    
+    # Check account lockout
+    is_locked, lockout_message = await _check_account_lockout(db, email)
+    if is_locked:
+        logger.warning("Locked account login attempt: %s", email)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=lockout_message)
+    
     user = await _find_user_by_email(db, email)
+    
+    # Generic error message to prevent user enumeration
+    generic_error = "Invalid email or password"
+    
     if not user or user.get("role") != "super_admin":
         logger.info("Super admin login attempt for non-existent user: %s", payload.email)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Super admin not found")
+        await _increment_failed_attempts(db, email)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=generic_error)
 
     if not user.get("password"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password not set for this account")
+        logger.info("Super admin login attempt - password not set: %s", payload.email)
+        await _increment_failed_attempts(db, email)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=generic_error)
 
     if not verify_password(payload.password, user["password"]):
         logger.info("Invalid password attempt for super admin: %s", payload.email)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password")
+        await _increment_failed_attempts(db, email)
+        # Check if account should be locked after this attempt
+        is_locked, lockout_message = await _check_account_lockout(db, email)
+        if is_locked:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=lockout_message)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=generic_error)
 
     # Check email verification
     if not user.get("emailVerified"):
@@ -500,26 +620,52 @@ async def super_admin_login(
             detail="Email not verified. Please verify your email before signing in.",
         )
 
+    # Clear failed attempts on successful login
+    await _clear_failed_attempts(db, email)
     return _build_login_success_response(user)
 
 
+@_apply_rate_limit
 @router.post("/login")
 async def email_login(
+    request: Request,
     payload: LoginRequest,
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
+    """User login with rate limiting, account lockout, and generic error messages."""
+    settings = get_settings()
+    
     email = _normalize_email(payload.email)
+    
+    # Check account lockout
+    is_locked, lockout_message = await _check_account_lockout(db, email)
+    if is_locked:
+        logger.warning("Locked account login attempt: %s", email)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=lockout_message)
+    
     user = await _find_user_by_email(db, email)
+    
+    # Generic error message to prevent user enumeration
+    generic_error = "Invalid email or password"
+    
     if not user or user.get("role") == "super_admin":
         logger.info("Login attempt for non-existent user: %s", payload.email)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        await _increment_failed_attempts(db, email)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=generic_error)
 
     if not user.get("password"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please use Google sign-in for this account")
+        logger.info("Login attempt - password not set: %s", payload.email)
+        await _increment_failed_attempts(db, email)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=generic_error)
 
     if not verify_password(payload.password, user["password"]):
         logger.info("Invalid password attempt for user: %s", payload.email)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password")
+        await _increment_failed_attempts(db, email)
+        # Check if account should be locked after this attempt
+        is_locked, lockout_message = await _check_account_lockout(db, email)
+        if is_locked:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=lockout_message)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=generic_error)
 
     # Check email verification
     if not user.get("emailVerified"):
@@ -528,6 +674,8 @@ async def email_login(
             detail="Email not verified. Please verify your email before signing in.",
         )
 
+    # Clear failed attempts on successful login
+    await _clear_failed_attempts(db, email)
     return _build_login_success_response(user)
 
 
@@ -573,11 +721,14 @@ async def org_signup_email(
     )
 
 
+@_apply_rate_limit
 @router.post("/oauth-login")
 async def oauth_login(
+    request: Request,
     payload: OAuthLoginRequest,
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
+    """OAuth login with rate limiting."""
     try:
         email = _normalize_email(payload.email)
         user = await _find_user_by_email(db, email)
@@ -616,5 +767,62 @@ async def oauth_login(
             raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OAuth login failed: {str(exc)}"
+            detail="OAuth login failed. Please try again."
+        )
+
+
+@router.post("/refresh-token")
+async def refresh_token(
+    payload: dict,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Refresh access token using refresh token."""
+    from ..core.security import decode_token, create_access_token, create_refresh_token
+    
+    refresh_token_str = payload.get("refreshToken")
+    if not refresh_token_str:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Refresh token is required")
+    
+    try:
+        decoded = decode_token(refresh_token_str)
+        
+        # Verify it's a refresh token
+        if decoded.get("type") != "refresh":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token type")
+        
+        user_id = decoded.get("sub")
+        role = decoded.get("role")
+        
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+        
+        # Verify user still exists
+        from ..utils.mongo import to_object_id
+        try:
+            user_oid = to_object_id(user_id)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID")
+        
+        user = await db.users.find_one({"_id": user_oid})
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        # Generate new token pair
+        new_access_token = create_access_token(user_id, role)
+        new_refresh_token = create_refresh_token(user_id, role)
+        
+        return success_response(
+            "Token refreshed successfully",
+            {
+                "token": new_access_token,
+                "refreshToken": new_refresh_token,
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Token refresh error: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token"
         ) from exc

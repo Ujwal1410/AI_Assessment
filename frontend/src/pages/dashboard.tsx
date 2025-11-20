@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { signOut, useSession } from "next-auth/react";
+import { GetServerSideProps } from "next";
+import { requireAuth } from "../lib/auth";
 import Link from "next/link";
 import Image from "next/image";
 import axios from "axios";
@@ -20,14 +22,21 @@ interface Assessment {
   updatedAt?: string;
 }
 
-export default function DashboardPage() {
+interface DashboardPageProps {
+  session: any;
+}
+
+export default function DashboardPage({ session: serverSession }: DashboardPageProps) {
   const { data: session } = useSession();
   const router = useRouter();
+  
+  // Use server session if available, fallback to client session
+  const activeSession = serverSession || session;
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const role = (session?.user as any)?.role ?? "unknown";
+  const role = (activeSession?.user as any)?.role ?? "unknown";
   const isOrgAdmin = role === "org_admin";
 
   useEffect(() => {
@@ -120,7 +129,7 @@ export default function DashboardPage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
             <span className="mobile-hidden" style={{ fontSize: "0.875rem", opacity: 0.9 }}>
-              {session?.user?.email}
+              {activeSession?.user?.email}
             </span>
             <button
               type="button"
@@ -150,7 +159,7 @@ export default function DashboardPage() {
                 Assessments Dashboard
               </h1>
               <p style={{ color: "#6b6678", margin: 0, fontSize: "0.875rem" }}>
-                Signed in as <strong>{session?.user?.email}</strong> • Role:{" "}
+                Signed in as <strong>{activeSession?.user?.email}</strong> • Role:{" "}
                 <span className="badge badge-purple" style={{ marginLeft: "0.25rem" }}>
                   {role}
                 </span>
@@ -345,3 +354,6 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+// Server-side authentication check
+export const getServerSideProps: GetServerSideProps = requireAuth;

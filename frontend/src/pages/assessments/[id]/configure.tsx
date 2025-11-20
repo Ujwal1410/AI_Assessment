@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
+import { GetServerSideProps } from "next";
+import { requireAuth } from "../../../lib/auth";
 import Link from "next/link";
 import axios from "axios";
 
@@ -600,6 +602,6 @@ export default function ConfigureTopicsPage() {
   );
 }
 
-
-
+// Server-side authentication check
+export const getServerSideProps: GetServerSideProps = requireAuth;
 

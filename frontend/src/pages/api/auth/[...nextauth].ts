@@ -13,8 +13,21 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt",
+    maxAge: 60 * 60, // 1 hour (matches backend access token expiration)
   },
   debug: process.env.NODE_ENV === "development",
+  useSecureCookies: process.env.NODE_ENV === "production", // Secure cookies only in production
+  cookies: {
+    sessionToken: {
+      name: `${process.env.NODE_ENV === "production" ? "__Secure-" : ""}next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax", // Changed from strict to allow OAuth redirects
+        path: "/",
+        secure: process.env.NODE_ENV === "production", // Only secure in production
+      },
+    },
+  },
   providers: [
     CredentialsProvider({
       name: "Password Credentials",

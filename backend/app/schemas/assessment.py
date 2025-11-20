@@ -123,6 +123,17 @@ class FinalizeAssessmentRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     questionTypeTimes: Optional[Dict[str, int]] = None  # Time in minutes per question type
+    enablePerSectionTimers: Optional[bool] = True  # Whether to enable per-section timers
+
+
+class LogAnswerRequest(BaseModel):
+    assessmentId: str = Field(..., min_length=1, max_length=100)
+    token: str = Field(..., min_length=1, max_length=200)
+    email: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(..., min_length=1, max_length=200)
+    questionIndex: int = Field(..., ge=0)
+    answer: str = Field(..., max_length=50000)  # Max 50KB answer text
+    questionType: str = Field(..., max_length=50)
 
 
 # New flow schemas

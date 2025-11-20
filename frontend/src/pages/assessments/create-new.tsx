@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
+import { GetServerSideProps } from "next";
+import { requireAuth } from "../../lib/auth";
 import Link from "next/link";
 import axios from "axios";
 
@@ -40,6 +42,7 @@ export default function CreateNewAssessmentPage() {
   const [candidateName, setCandidateName] = useState("");
   const [assessmentUrl, setAssessmentUrl] = useState<string | null>(null);
   const [questionTypeTimes, setQuestionTypeTimes] = useState<{ [key: string]: number }>({});
+  const [enablePerSectionTimers, setEnablePerSectionTimers] = useState<boolean>(true); // Default to enabled
 
   const sliderRef = useRef<HTMLDivElement>(null);
   const minHandleRef = useRef<HTMLDivElement>(null);
@@ -393,12 +396,13 @@ export default function CreateNewAssessmentPage() {
         }
       }
 
-      // Then finalize with questionTypeTimes
+      // Then finalize with questionTypeTimes and enablePerSectionTimers flag
       const response = await axios.post("/api/assessments/finalize", {
         assessmentId,
         title: finalTitle.trim(),
         description: finalDescription.trim() || undefined,
-        questionTypeTimes: questionTypeTimes,
+        questionTypeTimes: enablePerSectionTimers ? questionTypeTimes : undefined,
+        enablePerSectionTimers: enablePerSectionTimers,
       });
 
       if (response.data?.success) {
@@ -918,6 +922,64 @@ export default function CreateNewAssessmentPage() {
                 Review questions grouped by type and set time for each question type
               </p>
 
+              {/* Toggle for Per-Section Timers */}
+              <div style={{ 
+                marginBottom: "2rem", 
+                padding: "1.5rem", 
+                backgroundColor: "#f8fafc", 
+                borderRadius: "0.75rem", 
+                border: "2px solid #e2e8f0" 
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                  <div>
+                    <h3 style={{ margin: 0, marginBottom: "0.5rem", fontSize: "1.125rem", color: "#1a1625", fontWeight: 600 }}>
+                      Timer Settings
+                    </h3>
+                    <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b" }}>
+                      {enablePerSectionTimers 
+                        ? "Each question type will have its own timer. Sections will lock when their timer expires."
+                        : "Only the overall assessment schedule time will apply. No per-section timers."}
+                    </p>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      onClick={() => setEnablePerSectionTimers(true)}
+                      style={{
+                        padding: "0.75rem 1.5rem",
+                        border: `2px solid ${enablePerSectionTimers ? "#10b981" : "#e2e8f0"}`,
+                        borderRadius: "0.5rem",
+                        backgroundColor: enablePerSectionTimers ? "#10b981" : "#ffffff",
+                        color: enablePerSectionTimers ? "#ffffff" : "#64748b",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontSize: "0.875rem",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      Enable Per-Section Timers
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEnablePerSectionTimers(false)}
+                      style={{
+                        padding: "0.75rem 1.5rem",
+                        border: `2px solid ${!enablePerSectionTimers ? "#3b82f6" : "#e2e8f0"}`,
+                        borderRadius: "0.5rem",
+                        backgroundColor: !enablePerSectionTimers ? "#3b82f6" : "#ffffff",
+                        color: !enablePerSectionTimers ? "#ffffff" : "#64748b",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontSize: "0.875rem",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      Use Schedule Time Only
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {questions.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
                   No questions generated yet.
@@ -975,29 +1037,31 @@ export default function CreateNewAssessmentPage() {
                                 {typeQuestions.length} question{typeQuestions.length !== 1 ? "s" : ""} • Total Score: {totalScore} points
                               </p>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#1e293b", fontWeight: 600 }}>
-                                Time (minutes):
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={typeTime}
-                                  onChange={(e) => {
-                                    setQuestionTypeTimes((prev) => ({
-                                      ...prev,
-                                      [questionType]: parseInt(e.target.value) || 10,
-                                    }));
-                                  }}
-                                  style={{
-                                    width: "80px",
-                                    padding: "0.5rem",
-                                    border: "1px solid #e2e8f0",
-                                    borderRadius: "0.5rem",
-                                    fontSize: "0.875rem",
-                                  }}
-                                />
-                              </label>
-                            </div>
+                            {enablePerSectionTimers && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", color: "#1e293b", fontWeight: 600 }}>
+                                  Time (minutes):
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={typeTime}
+                                    onChange={(e) => {
+                                      setQuestionTypeTimes((prev) => ({
+                                        ...prev,
+                                        [questionType]: parseInt(e.target.value) || 10,
+                                      }));
+                                    }}
+                                    style={{
+                                      width: "80px",
+                                      padding: "0.5rem",
+                                      border: "1px solid #e2e8f0",
+                                      borderRadius: "0.5rem",
+                                      fontSize: "0.875rem",
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            )}
                           </div>
 
                           {/* Questions Table for this type */}
@@ -1136,12 +1200,22 @@ export default function CreateNewAssessmentPage() {
                         {questions.reduce((sum, q) => sum + (q.score || 5), 0)} points
                       </span>
                     </div>
-                    <div>
-                      <span style={{ color: "#64748b", fontSize: "0.875rem", marginRight: "0.5rem" }}>Total Time (All Types):</span>
-                      <span style={{ color: "#1e293b", fontSize: "1.125rem", fontWeight: 700 }}>
-                        {Object.values(questionTypeTimes).reduce((sum, time) => sum + time, 0)} minutes
-                      </span>
-                    </div>
+                    {enablePerSectionTimers && (
+                      <div>
+                        <span style={{ color: "#64748b", fontSize: "0.875rem", marginRight: "0.5rem" }}>Total Time (All Types):</span>
+                        <span style={{ color: "#1e293b", fontSize: "1.125rem", fontWeight: 700 }}>
+                          {Object.values(questionTypeTimes).reduce((sum, time) => sum + time, 0)} minutes
+                        </span>
+                      </div>
+                    )}
+                    {!enablePerSectionTimers && (
+                      <div>
+                        <span style={{ color: "#64748b", fontSize: "0.875rem", marginRight: "0.5rem" }}>Timer Mode:</span>
+                        <span style={{ color: "#3b82f6", fontSize: "1.125rem", fontWeight: 700 }}>
+                          Schedule Time Only
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1254,7 +1328,7 @@ export default function CreateNewAssessmentPage() {
                   style={{
                     width: "100%",
                     padding: "0.75rem",
-                    border: "1px solid #e2e8f0",
+                    border: `1px solid ${startTime && endTime && new Date(endTime) <= new Date(startTime) ? "#ef4444" : "#e2e8f0"}`,
                     borderRadius: "0.5rem",
                     fontSize: "1rem",
                   }}
@@ -1262,7 +1336,96 @@ export default function CreateNewAssessmentPage() {
                 <p style={{ fontSize: "0.875rem", color: "#64748b", marginTop: "0.5rem" }}>
                   Indian Standard Time (IST) - UTC+5:30
                 </p>
+                {startTime && endTime && new Date(endTime) <= new Date(startTime) && (
+                  <p style={{ fontSize: "0.875rem", color: "#dc2626", marginTop: "0.5rem", fontWeight: 600 }}>
+                    ⚠️ Please choose an end time greater than the start time
+                  </p>
+                )}
               </div>
+
+              {/* Error Message for Invalid Time Range */}
+              {startTime && endTime && new Date(endTime) <= new Date(startTime) && (
+                <div style={{ 
+                  marginBottom: "1.5rem",
+                  padding: "1rem",
+                  backgroundColor: "#fef2f2",
+                  border: "2px solid #ef4444",
+                  borderRadius: "0.5rem"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                    <span style={{ fontSize: "1.25rem" }}>⚠️</span>
+                    <strong style={{ color: "#dc2626" }}>
+                      Invalid Time Range
+                    </strong>
+                  </div>
+                  <div style={{ fontSize: "0.875rem", color: "#64748b", marginLeft: "1.75rem" }}>
+                    <div style={{ color: "#dc2626", fontWeight: 600 }}>
+                      Please choose an end time that is greater than the start time.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Validation Message - Only show if per-section timers are enabled and time range is valid */}
+              {startTime && endTime && new Date(endTime) > new Date(startTime) && enablePerSectionTimers && (() => {
+                const scheduledDuration = (new Date(endTime).getTime() - new Date(startTime).getTime()) / (1000 * 60); // in minutes
+                const totalTimeFromReview = Object.values(questionTypeTimes).reduce((sum, time) => sum + time, 0);
+                const isValid = scheduledDuration >= totalTimeFromReview;
+                
+                return (
+                  <div style={{ 
+                    marginBottom: "1.5rem",
+                    padding: "1rem",
+                    backgroundColor: isValid ? "#f0fdf4" : "#fef2f2",
+                    border: `2px solid ${isValid ? "#10b981" : "#ef4444"}`,
+                    borderRadius: "0.5rem"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                      <span style={{ fontSize: "1.25rem" }}>{isValid ? "✓" : "⚠️"}</span>
+                      <strong style={{ color: isValid ? "#059669" : "#dc2626" }}>
+                        {isValid ? "Schedule Duration is Valid" : "Schedule Duration is Too Short"}
+                      </strong>
+                    </div>
+                    <div style={{ fontSize: "0.875rem", color: "#64748b", marginLeft: "1.75rem" }}>
+                      <div>Total time from Review Station: <strong>{totalTimeFromReview} minutes</strong></div>
+                      <div>Scheduled duration: <strong>{Math.round(scheduledDuration)} minutes</strong></div>
+                      {!isValid && (
+                        <div style={{ color: "#dc2626", marginTop: "0.5rem", fontWeight: 600 }}>
+                          ⚠️ Scheduled duration must be greater than or equal to {totalTimeFromReview} minutes
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              
+              {/* Info Message when per-section timers are disabled and time range is valid */}
+              {startTime && endTime && new Date(endTime) > new Date(startTime) && !enablePerSectionTimers && (() => {
+                const scheduledDuration = (new Date(endTime).getTime() - new Date(startTime).getTime()) / (1000 * 60); // in minutes
+                
+                return (
+                  <div style={{ 
+                    marginBottom: "1.5rem",
+                    padding: "1rem",
+                    backgroundColor: "#f0f9ff",
+                    border: "2px solid #3b82f6",
+                    borderRadius: "0.5rem"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                      <span style={{ fontSize: "1.25rem" }}>ℹ️</span>
+                      <strong style={{ color: "#1e40af" }}>
+                        Schedule Time Only Mode
+                      </strong>
+                    </div>
+                    <div style={{ fontSize: "0.875rem", color: "#64748b", marginLeft: "1.75rem" }}>
+                      <div>Scheduled duration: <strong>{Math.round(scheduledDuration)} minutes</strong></div>
+                      <div style={{ marginTop: "0.5rem" }}>
+                        Candidates will have the full scheduled time to complete the entire assessment. No per-section timers will be applied.
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div style={{ display: "flex", gap: "1rem", marginTop: "2rem" }}>
                 <button
@@ -1284,6 +1447,18 @@ export default function CreateNewAssessmentPage() {
                       setError("End time must be after start time");
                       return;
                     }
+                    
+                    // Validate scheduled duration >= total time from Review Station (only if per-section timers are enabled)
+                    if (enablePerSectionTimers) {
+                      const scheduledDuration = (new Date(endTime).getTime() - new Date(startTime).getTime()) / (1000 * 60); // in minutes
+                      const totalTimeFromReview = Object.values(questionTypeTimes).reduce((sum, time) => sum + time, 0);
+                      
+                      if (scheduledDuration < totalTimeFromReview) {
+                        setError(`Scheduled duration (${Math.round(scheduledDuration)} minutes) must be greater than or equal to the total time set in Review Station (${totalTimeFromReview} minutes)`);
+                        return;
+                      }
+                    }
+                    
                     setError(null);
                     setCurrentStation(5);
                   }}
@@ -1498,4 +1673,7 @@ export default function CreateNewAssessmentPage() {
     </div>
   );
 }
+
+// Server-side authentication check
+export const getServerSideProps: GetServerSideProps = requireAuth;
 

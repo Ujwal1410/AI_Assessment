@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
+import { GetServerSideProps } from "next";
+import { requireAuth } from "../../../lib/auth";
 import Link from "next/link";
 import axios from "axios";
 
@@ -14,6 +16,20 @@ interface CandidateResult {
   submittedAt: string;
 }
 
+interface AnswerLog {
+  answer: string;
+  questionType: string;
+  timestamp: string;
+  version: number;
+}
+
+interface QuestionLog {
+  questionIndex: number;
+  questionText: string;
+  questionType: string;
+  logs: AnswerLog[];
+}
+
 export default function AssessmentDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -24,6 +40,10 @@ export default function AssessmentDetailPage() {
   const [showResults, setShowResults] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [loadingResults, setLoadingResults] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<{ email: string; name: string } | null>(null);
+  const [answerLogs, setAnswerLogs] = useState<QuestionLog[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -175,7 +195,13 @@ export default function AssessmentDetailPage() {
           )}
           <button
             type="button"
-            onClick={() => setShowResults(!showResults)}
+            onClick={() => {
+              setShowResults(!showResults);
+              if (showResults) {
+                setSelectedCandidate(null);
+                setAnswerLogs([]);
+              }
+            }}
             className="btn-secondary"
             disabled={loadingResults}
           >
@@ -240,6 +266,9 @@ export default function AssessmentDetailPage() {
                       <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
                         Submitted At
                       </th>
+                      <th style={{ padding: "1rem", textAlign: "left", borderBottom: "2px solid #e2e8f0", fontWeight: 600, color: "#1e293b" }}>
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -276,10 +305,187 @@ export default function AssessmentDetailPage() {
                               })
                             : "N/A"}
                         </td>
+                        <td style={{ padding: "1rem" }}>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setSelectedCandidate({ email: result.email, name: result.name });
+                              setLoadingLogs(true);
+                              setLogsError(null);
+                              try {
+                                const logsResponse = await axios.get(
+                                  `/api/assessments/get-answer-logs?assessmentId=${id}&candidateEmail=${encodeURIComponent(result.email)}&candidateName=${encodeURIComponent(result.name)}`
+                                );
+                                if (logsResponse.data?.success) {
+                                  setAnswerLogs(logsResponse.data.data || []);
+                                } else {
+                                  setLogsError(logsResponse.data?.message || logsResponse.data?.detail || "Failed to load answer logs");
+                                }
+                              } catch (err: any) {
+                                console.error("Error fetching answer logs:", err);
+                                const errorMsg = err.response?.data?.message || 
+                                                err.response?.data?.detail || 
+                                                err.response?.data?.error ||
+                                                err.message || 
+                                                "Failed to load answer logs";
+                                setLogsError(errorMsg);
+                                console.error("Full error response:", err.response?.data);
+                              } finally {
+                                setLoadingLogs(false);
+                              }
+                            }}
+                            className="btn-secondary"
+                            style={{ 
+                              padding: "0.5rem 1rem", 
+                              fontSize: "0.875rem",
+                              whiteSpace: "nowrap"
+                            }}
+                          >
+                            View Logs
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* Answer Logs Section */}
+            {selectedCandidate && (
+              <div style={{ marginTop: "2rem", paddingTop: "2rem", borderTop: "2px solid #e2e8f0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+                  <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#1a1625", fontWeight: 700 }}>
+                    Answer Logs - {selectedCandidate.name}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCandidate(null);
+                      setAnswerLogs([]);
+                    }}
+                    className="btn-secondary"
+                    style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {loadingLogs ? (
+                  <div style={{ textAlign: "center", padding: "2rem" }}>
+                    <p style={{ color: "#64748b" }}>Loading answer logs...</p>
+                  </div>
+                ) : logsError ? (
+                  <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
+                    {logsError}
+                  </div>
+                ) : answerLogs.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
+                    <p>No answer logs found for this candidate.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                    {answerLogs.map((questionLog) => (
+                      <div
+                        key={questionLog.questionIndex}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: "0.75rem",
+                          padding: "1.5rem",
+                          backgroundColor: "#ffffff",
+                        }}
+                      >
+                        <div style={{ marginBottom: "1rem" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                            <span
+                              style={{
+                                backgroundColor: "#6953a3",
+                                color: "#ffffff",
+                                padding: "0.25rem 0.75rem",
+                                borderRadius: "9999px",
+                                fontSize: "0.75rem",
+                                fontWeight: 700,
+                              }}
+                            >
+                              Q{questionLog.questionIndex + 1}
+                            </span>
+                            <span
+                              style={{
+                                backgroundColor: "#eff6ff",
+                                color: "#1e40af",
+                                padding: "0.25rem 0.75rem",
+                                borderRadius: "9999px",
+                                fontSize: "0.75rem",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {questionLog.questionType}
+                            </span>
+                          </div>
+                          <p style={{ color: "#1e293b", lineHeight: 1.6, margin: 0, fontSize: "0.9375rem" }}>
+                            {questionLog.questionText}
+                          </p>
+                        </div>
+
+                        <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #e2e8f0" }}>
+                          <h4 style={{ margin: 0, marginBottom: "1rem", fontSize: "1rem", color: "#1e293b", fontWeight: 600 }}>
+                            Answer Versions:
+                          </h4>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                            {questionLog.logs.map((log, logIndex) => (
+                              <div
+                                key={logIndex}
+                                style={{
+                                  padding: "1rem",
+                                  backgroundColor: "#f8fafc",
+                                  border: "1px solid #e2e8f0",
+                                  borderRadius: "0.5rem",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "0.5rem" }}>
+                                  <span
+                                    style={{
+                                      backgroundColor: "#dbeafe",
+                                      color: "#1e40af",
+                                      padding: "0.25rem 0.75rem",
+                                      borderRadius: "9999px",
+                                      fontSize: "0.75rem",
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Version {log.version}
+                                  </span>
+                                  <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                                    {new Date(log.timestamp).toLocaleString("en-IN", {
+                                      timeZone: "Asia/Kolkata",
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "numeric",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                      second: "2-digit",
+                                    })}
+                                  </span>
+                                </div>
+                                <p
+                                  style={{
+                                    color: "#1e293b",
+                                    lineHeight: 1.6,
+                                    whiteSpace: "pre-wrap",
+                                    margin: 0,
+                                    fontSize: "0.875rem",
+                                  }}
+                                >
+                                  {log.answer || "(Empty answer)"}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -289,6 +495,6 @@ export default function AssessmentDetailPage() {
   );
 }
 
-
-
+// Server-side authentication check
+export const getServerSideProps: GetServerSideProps = requireAuth;
 

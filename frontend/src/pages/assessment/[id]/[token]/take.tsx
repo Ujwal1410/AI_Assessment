@@ -34,13 +34,13 @@ export default function CandidateAssessmentPage() {
   const [submittingQuestion, setSubmittingQuestion] = useState<number | null>(null);
   const [assessmentTimeRemaining, setAssessmentTimeRemaining] = useState<number>(0);
   const [questionTypeTimes, setQuestionTypeTimes] = useState<{ [key: string]: number }>({});
+  const [enablePerSectionTimers, setEnablePerSectionTimers] = useState<boolean>(true); // Default to true
   const [questionsByType, setQuestionsByType] = useState<{ [key: string]: Question[] }>({});
   const [currentQuestionType, setCurrentQuestionType] = useState<string>("");
   const [typeTimeRemaining, setTypeTimeRemaining] = useState<number>(0);
   const [completedTypes, setCompletedTypes] = useState<Set<string>>(new Set());
   const [typeStartTime, setTypeStartTime] = useState<number>(Date.now());
   const [currentTypeQuestionIndex, setCurrentTypeQuestionIndex] = useState<number>(0);
-  const [answerValidationError, setAnswerValidationError] = useState<boolean>(false);
 
   useEffect(() => {
     // Get candidate info from sessionStorage
@@ -65,13 +65,17 @@ export default function CandidateAssessmentPage() {
           setEndTime(scheduleResponse.data.data.endTime);
         }
 
-        // Fetch questions and questionTypeTimes
+        // Fetch questions, questionTypeTimes, and enablePerSectionTimers
         const questionsResponse = await axios.get(`/api/assessment/get-questions?assessmentId=${id}&token=${token}`);
         if (questionsResponse.data?.success) {
           const fetchedQuestions = questionsResponse.data.data.questions || [];
           const fetchedQuestionTypeTimes = questionsResponse.data.data.questionTypeTimes || {};
+          const fetchedEnablePerSectionTimers = questionsResponse.data.data.enablePerSectionTimers !== undefined 
+            ? questionsResponse.data.data.enablePerSectionTimers 
+            : true; // Default to true for backward compatibility
           setQuestions(fetchedQuestions);
           setQuestionTypeTimes(fetchedQuestionTypeTimes);
+          setEnablePerSectionTimers(fetchedEnablePerSectionTimers);
           
           // Group questions by type and set current type
           const questionsByType: { [key: string]: Question[] } = {};
@@ -153,69 +157,47 @@ export default function CandidateAssessmentPage() {
   }, [currentQuestionIndex, currentQuestionType, questionsByType, questions.length, getTypeIndexFromGlobalIndex]);
 
   useEffect(() => {
-    // Reset timer when question type changes
-    if (currentQuestionType && questionTypeTimes[currentQuestionType] && !completedTypes.has(currentQuestionType)) {
+    // Reset timer when question type changes (only if per-section timers are enabled)
+    if (enablePerSectionTimers && currentQuestionType && questionTypeTimes[currentQuestionType] && !completedTypes.has(currentQuestionType)) {
       const typeTime = questionTypeTimes[currentQuestionType] || 10;
       setTypeTimeRemaining(typeTime * 60);
       setTypeStartTime(Date.now());
     }
   }, [currentQuestionType, questionTypeTimes, completedTypes]);
 
-
   useEffect(() => {
-    // Per-question-type timer
-    if (!currentQuestionType || typeTimeRemaining <= 0 || timeStatus !== "active" || completedTypes.has(currentQuestionType)) return;
+    // Per-question-type timer - only run if per-section timers are enabled
+    if (!enablePerSectionTimers || !currentQuestionType || typeTimeRemaining <= 0 || timeStatus !== "active" || completedTypes.has(currentQuestionType)) return;
     
     const typeTimer = setInterval(() => {
           setTypeTimeRemaining(prev => {
         if (prev <= 1) {
-          // Auto-submit current type - mark as completed and move to next type
+          // Section timer expired - lock this section and move to next type (if available)
+          // DO NOT submit the entire assessment - only the overall assessment timer should do that
           setCompletedTypes(prev => {
             const newCompleted = new Set(prev);
             newCompleted.add(currentQuestionType);
             
-            // Move to next question type
+            // Move to next question type if available
             const allTypes = Object.keys(questionsByType);
             const currentTypeIndex = allTypes.indexOf(currentQuestionType);
             if (currentTypeIndex < allTypes.length - 1) {
               const nextType = allTypes[currentTypeIndex + 1];
-              setCurrentQuestionType(nextType);
-              setCurrentTypeQuestionIndex(0);
-              const nextTypeFirstQuestion = questionsByType[nextType][0];
-              const nextGlobalIndex = questions.findIndex((q) => q === nextTypeFirstQuestion);
-              setCurrentQuestionIndex(nextGlobalIndex >= 0 ? nextGlobalIndex : 0);
-              const nextTypeTime = questionTypeTimes[nextType] || 10;
-              setTypeTimeRemaining(nextTypeTime * 60);
-              setTypeStartTime(Date.now());
+              // Only move to next type if it's not already completed
+              if (!newCompleted.has(nextType)) {
+                setCurrentQuestionType(nextType);
+                setCurrentTypeQuestionIndex(0);
+                const nextTypeFirstQuestion = questionsByType[nextType][0];
+                const nextGlobalIndex = questions.findIndex((q) => q === nextTypeFirstQuestion);
+                setCurrentQuestionIndex(nextGlobalIndex >= 0 ? nextGlobalIndex : 0);
+                const nextTypeTime = questionTypeTimes[nextType] || 10;
+                setTypeTimeRemaining(nextTypeTime * 60);
+                setTypeStartTime(Date.now());
+              }
             } else {
-              // Last type completed, finalize assessment
-              // Use setTimeout to avoid calling handleFinalize during state update
-              setTimeout(() => {
-                const allAnswers = [...answers];
-                questions.forEach((_, index) => {
-                  const existingAnswer = allAnswers.find((a) => a.questionIndex === index);
-                  if (!existingAnswer) {
-                    allAnswers.push({ questionIndex: index, answer: "", timeSpent: 0 });
-                  }
-                });
-                setSubmitting(true);
-                axios.post("/api/assessment/submit-answers", {
-                  assessmentId: id,
-                  token,
-                  email: candidateEmail,
-                  name: candidateName,
-                  answers: allAnswers,
-                  skippedQuestions: [],
-                }).then((response) => {
-                  if (response.data?.success) {
-                    router.push(`/assessment/${id}/${token}/completed`);
-                  }
-                }).catch((err) => {
-                  console.error("Error auto-submitting assessment:", err);
-                }).finally(() => {
-                  setSubmitting(false);
-                });
-              }, 100);
+              // Last type completed - but don't submit yet, let overall assessment timer handle it
+              // Just mark as completed and stop the timer
+              setTypeTimeRemaining(0);
             }
             
             return newCompleted;
@@ -228,7 +210,7 @@ export default function CandidateAssessmentPage() {
     }, 1000);
 
     return () => clearInterval(typeTimer);
-  }, [typeTimeRemaining, timeStatus, currentQuestionType, completedTypes, questionsByType, questionTypeTimes, questions, answers, id, token, candidateEmail, candidateName, router]);
+  }, [enablePerSectionTimers, typeTimeRemaining, timeStatus, currentQuestionType, completedTypes, questionsByType, questionTypeTimes, questions, answers, id, token, candidateEmail, candidateName, router]);
 
   useEffect(() => {
     // Assessment-level timer
@@ -321,7 +303,11 @@ export default function CandidateAssessmentPage() {
   };
 
   const handleAnswerChange = (value: string) => {
-    // Free navigation - no restrictions
+    // Prevent answering if current section is completed (time expired) - only if per-section timers are enabled
+    if (enablePerSectionTimers && completedTypes.has(currentQuestionType)) {
+      return;
+    }
+    
     const timeSpent = Math.floor((Date.now() - typeStartTime) / 1000); // Time spent in current type
     const existingAnswerIndex = answers.findIndex((a) => a.questionIndex === currentQuestionIndex);
     
@@ -351,19 +337,6 @@ export default function CandidateAssessmentPage() {
   };
 
   const handleNext = () => {
-    // Validate answer before moving to next question
-    const currentAnswer = getCurrentAnswer();
-    const currentQuestion = questions[currentQuestionIndex];
-    
-    // Check if answer is provided
-    if (!validateAnswer(currentAnswer)) {
-      setAnswerValidationError(true);
-      return;
-    }
-    
-    // Clear validation error if valid
-    setAnswerValidationError(false);
-    
     // Move to next question within current type
     const currentTypeQuestions = getCurrentTypeQuestions();
     if (currentTypeQuestionIndex < currentTypeQuestions.length - 1) {
@@ -391,24 +364,7 @@ export default function CandidateAssessmentPage() {
     }
   };
 
-  const handleSubmitSection = (e?: React.MouseEvent) => {
-    // Prevent submission if button is disabled
-    if (e?.currentTarget?.hasAttribute('disabled')) {
-      return;
-    }
-    
-    // Validate answer for all question types
-    const currentAnswer = getCurrentAnswer();
-    
-    // Check if answer is provided (works for both MCQ and text-based)
-    if (!validateAnswer(currentAnswer)) {
-      setAnswerValidationError(true);
-      return;
-    }
-    
-    // Clear validation error if valid
-    setAnswerValidationError(false);
-    
+  const handleSubmitSection = () => {
     // Mark current type as completed and move to next type
     setCompletedTypes(prev => {
       const newSet = new Set(prev);
@@ -532,7 +488,7 @@ export default function CandidateAssessmentPage() {
       <div style={{ backgroundColor: "#f1dcba", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
         <div className="card" style={{ maxWidth: "600px", width: "100%", textAlign: "center" }}>
           <h1 style={{ marginBottom: "1rem", fontSize: "2rem", color: "#1a1625", fontWeight: 700 }}>
-            Time Over
+            Your Assessment is Over
           </h1>
           <p style={{ color: "#6b6678", marginBottom: "2rem", fontSize: "1.125rem" }}>
             Your assessment ended at:
@@ -541,7 +497,7 @@ export default function CandidateAssessmentPage() {
             {formatDateTime(endTime)}
           </p>
           <p style={{ color: "#64748b", fontSize: "0.875rem" }}>
-            The assessment time has expired.
+            The assessment time has expired. Your answers have been submitted.
           </p>
         </div>
       </div>
@@ -644,6 +600,65 @@ export default function CandidateAssessmentPage() {
           {/* Main Content Area */}
           <div style={{ flex: 1 }}>
             <div className="card">
+              {/* Error and Success Messages */}
+              {errorMessage && (
+                <div style={{
+                  padding: "1rem",
+                  backgroundColor: "#fef2f2",
+                  border: "1px solid #ef4444",
+                  borderRadius: "0.5rem",
+                  marginBottom: "1rem",
+                  color: "#dc2626",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center"
+                }}>
+                  <span>{errorMessage}</span>
+                  <button
+                    type="button"
+                    onClick={() => setErrorMessage(null)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#dc2626",
+                      cursor: "pointer",
+                      fontSize: "1.25rem",
+                      padding: "0 0.5rem"
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              {successMessage && (
+                <div style={{
+                  padding: "1rem",
+                  backgroundColor: "#f0fdf4",
+                  border: "1px solid #10b981",
+                  borderRadius: "0.5rem",
+                  marginBottom: "1rem",
+                  color: "#059669",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center"
+                }}>
+                  <span>{successMessage}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSuccessMessage(null)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#059669",
+                      cursor: "pointer",
+                      fontSize: "1.25rem",
+                      padding: "0 0.5rem"
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
               {/* Top Bar - Assessment Timer (center) and Type Timer (right) */}
               <div style={{ 
                 display: "flex", 
@@ -676,8 +691,8 @@ export default function CandidateAssessmentPage() {
                   </div>
                 )}
 
-                {/* Type Timer - Right */}
-                {timeStatus === "active" && currentQuestionType && !completedTypes.has(currentQuestionType) && (
+                {/* Type Timer - Right (only show if per-section timers are enabled) */}
+                {enablePerSectionTimers && timeStatus === "active" && currentQuestionType && !completedTypes.has(currentQuestionType) && (
                   <div style={{ 
                     marginLeft: "1rem",
                     textAlign: "right",
@@ -687,7 +702,7 @@ export default function CandidateAssessmentPage() {
                     borderRadius: "0.5rem",
                     minWidth: "100px"
                   }}>
-                    <p style={{ color: "#64748b", fontSize: "0.75rem", marginBottom: "0.25rem" }}>Time</p>
+                    <p style={{ color: "#64748b", fontSize: "0.75rem", marginBottom: "0.25rem" }}>Section Time</p>
                     <p style={{ 
                       fontSize: "1rem", 
                       fontWeight: 700, 
@@ -805,7 +820,19 @@ export default function CandidateAssessmentPage() {
               {currentQuestion.questionText}
             </p>
 
-              {/* Answer Input - Free navigation, no restrictions */}
+              {/* Answer Input - Disabled if section is completed (only if per-section timers are enabled) */}
+              {enablePerSectionTimers && completedTypes.has(currentQuestionType) && (
+                <div style={{ 
+                  marginBottom: "1rem", 
+                  padding: "1rem", 
+                  backgroundColor: "#fef2f2", 
+                  border: "2px solid #ef4444", 
+                  borderRadius: "0.5rem",
+                  color: "#dc2626"
+                }}>
+                  <strong>⚠️ This section's time has expired. You can no longer answer questions in this section.</strong>
+                </div>
+              )}
               {currentQuestion.type === "MCQ" && currentQuestion.options ? (
                 <div style={{ marginTop: "1rem" }}>
                   {currentQuestion.options.map((option, optIndex) => (
@@ -818,8 +845,9 @@ export default function CandidateAssessmentPage() {
                         backgroundColor: getCurrentAnswer() === String.fromCharCode(65 + optIndex) ? "#eff6ff" : "#f8fafc",
                         border: `2px solid ${getCurrentAnswer() === String.fromCharCode(65 + optIndex) ? "#3b82f6" : answerValidationError ? "#ef4444" : "#e2e8f0"}`,
                         borderRadius: "0.5rem",
-                        cursor: "pointer",
+                        cursor: (enablePerSectionTimers && completedTypes.has(currentQuestionType)) ? "not-allowed" : "pointer",
                         transition: "all 0.2s",
+                        opacity: (enablePerSectionTimers && completedTypes.has(currentQuestionType)) ? 0.6 : 1,
                       }}
                     >
                       <input
@@ -828,6 +856,7 @@ export default function CandidateAssessmentPage() {
                         value={String.fromCharCode(65 + optIndex)}
                         checked={getCurrentAnswer() === String.fromCharCode(65 + optIndex)}
                         onChange={(e) => handleAnswerChange(e.target.value)}
+                        disabled={enablePerSectionTimers && completedTypes.has(currentQuestionType)}
                         style={{ marginRight: "0.5rem" }}
                       />
                       <span style={{ fontSize: "0.875rem", color: "#1e293b" }}>
@@ -847,56 +876,22 @@ export default function CandidateAssessmentPage() {
                   )}
                 </div>
               ) : (
-                <>
-                  <textarea
-                    value={getCurrentAnswer()}
-                    onChange={(e) => handleAnswerChange(e.target.value)}
-                    onKeyDown={(e) => {
-                      // Handle Enter key submission (Ctrl+Enter or Cmd+Enter)
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                        e.preventDefault();
-                        if (isLastQuestionInType) {
-                          // Validate before submitting
-                          if (!isCurrentQuestionAnswered()) {
-                            setAnswerValidationError(true);
-                          } else {
-                            handleSubmitSection();
-                          }
-                        } else {
-                          // Validate before moving to next
-                          if (!isCurrentQuestionAnswered()) {
-                            setAnswerValidationError(true);
-                          } else {
-                            handleNext();
-                          }
-                        }
-                      }
-                    }}
-                    placeholder="Enter your answer here..."
-                    rows={6}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      border: answerValidationError ? "2px solid #ef4444" : "1px solid #e2e8f0",
-                      borderRadius: "0.5rem",
-                      fontSize: "0.875rem",
-                      fontFamily: "inherit",
-                      resize: "vertical",
-                      backgroundColor: "#ffffff",
-                      transition: "border-color 0.2s ease",
-                    }}
-                  />
-                  {answerValidationError && (
-                    <p style={{
-                      color: "#ef4444",
-                      fontSize: "0.875rem",
-                      marginTop: "0.5rem",
-                      marginBottom: 0,
-                    }}>
-                      Please enter your answer before proceeding.
-                    </p>
-                  )}
-                </>
+                <textarea
+                  value={getCurrentAnswer()}
+                  onChange={(e) => handleAnswerChange(e.target.value)}
+                  placeholder="Enter your answer here..."
+                  rows={6}
+                  style={{
+                    width: "100%",
+                    padding: "0.75rem",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "0.5rem",
+                    fontSize: "0.875rem",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                    backgroundColor: "#ffffff",
+                  }}
+                />
               )}
           </div>
 
@@ -917,66 +912,38 @@ export default function CandidateAssessmentPage() {
                     Back
                   </button>
                 )}
-                {!isLastQuestionInType && (() => {
-                  const currentAnswer = getCurrentAnswer();
-                  const isAnswerValid = isCurrentQuestionAnswered();
-                  const isDisabled = submitting || !isAnswerValid;
-                  
-                  return (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        // Double-check validation
-                        if (!isCurrentQuestionAnswered()) {
-                          setAnswerValidationError(true);
-                          return;
-                        }
-                        handleNext();
-                      }}
-                      className="btn-primary"
-                      disabled={isDisabled}
-                      style={{ 
-                        padding: "0.5rem 1rem",
-                        fontSize: "0.875rem",
-                        flex: isFirstQuestionInType ? 1 : 2,
-                        marginLeft: isFirstQuestionInType ? "auto" : 0
-                      }}
-                    >
-                      Next
-                    </button>
-                  );
-                })()}
-                {isLastQuestionInType && (() => {
-                  const currentAnswer = getCurrentAnswer();
-                  const isAnswerValid = isCurrentQuestionAnswered();
-                  const isDisabled = submitting || completedTypes.has(currentQuestionType) || !isAnswerValid;
-                  
-                  return (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        // Double-check validation even if button appears enabled
-                        if (!isCurrentQuestionAnswered()) {
-                          setAnswerValidationError(true);
-                          return;
-                        }
-                        handleSubmitSection(e);
-                      }}
-                      className="btn-primary"
-                      disabled={isDisabled}
-                      style={{ 
-                        padding: "0.5rem 1rem",
-                        fontSize: "0.875rem",
-                        flex: isFirstQuestionInType ? 1 : 2,
-                        marginLeft: isFirstQuestionInType ? "auto" : 0
-                      }}
-                    >
-                      {isLastType ? (submitting ? "Submitting..." : "Finalize Assessment") : "Submit Section & Continue"}
-                    </button>
-                  );
-                })()}
+                {!isLastQuestionInType && (
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    className="btn-primary"
+                    disabled={submitting}
+                    style={{ 
+                      padding: "0.5rem 1rem",
+                      fontSize: "0.875rem",
+                      flex: isFirstQuestionInType ? 1 : 2,
+                      marginLeft: isFirstQuestionInType ? "auto" : 0
+                    }}
+                  >
+                    Next
+                  </button>
+                )}
+                {isLastQuestionInType && (
+                  <button
+                    type="button"
+                    onClick={handleSubmitSection}
+                    className="btn-primary"
+                    disabled={submitting || completedTypes.has(currentQuestionType)}
+                    style={{ 
+                      padding: "0.5rem 1rem",
+                      fontSize: "0.875rem",
+                      flex: isFirstQuestionInType ? 1 : 2,
+                      marginLeft: isFirstQuestionInType ? "auto" : 0
+                    }}
+                  >
+                    {isLastType ? (submitting ? "Submitting..." : "Finalize Assessment") : "Submit Section & Continue"}
+                  </button>
+                )}
               </div>
             </div>
           </div>
