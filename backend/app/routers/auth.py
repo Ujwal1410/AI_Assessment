@@ -731,6 +731,18 @@ async def oauth_login(
     """OAuth login with rate limiting."""
     try:
         email = _normalize_email(payload.email)
+        logger.info(f"OAuth login attempt for email: {email}, provider: {payload.provider}")
+        
+        # Check MongoDB connection first
+        try:
+            await db.command("ping")
+        except Exception as db_error:
+            logger.error(f"MongoDB connection error during OAuth login: {db_error}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database connection error. Please try again."
+            ) from db_error
+        
         user = await _find_user_by_email(db, email)
 
         if not user:

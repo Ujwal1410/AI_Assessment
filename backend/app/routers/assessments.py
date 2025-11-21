@@ -1114,14 +1114,34 @@ async def get_answer_logs(
         assessment = await _get_assessment(db, assessment_id)
         _check_assessment_access(assessment, current_user)
 
+        # Match the format used in log-answer endpoint: email_lowercase_name_stripped
+        # Format: email.strip().lower() + "_" + name.strip()
+        # CRITICAL: Must match EXACTLY the format in log-answer endpoint
         candidate_key = f"{candidateEmail.strip().lower()}_{candidateName.strip()}"
+        logger.info(f"Fetching answer logs for candidate key: '{candidate_key}' (email='{candidateEmail}', name='{candidateName}')")
+        
         answer_logs = assessment.get("answerLogs")
         if not answer_logs or not isinstance(answer_logs, dict):
+            logger.info(f"No answerLogs found in assessment or answerLogs is not a dict. Type: {type(answer_logs)}")
+            logger.info(f"Assessment ID: {assessment_id}, Full assessment keys: {list(assessment.keys())}")
             return success_response("Answer logs fetched successfully", [])
         
+        logger.info(f"Answer logs keys in database: {list(answer_logs.keys())}")
+        logger.info(f"Looking for candidate key: '{candidate_key}'")
+        
+        # Try exact match first
         candidate_logs = answer_logs.get(candidate_key, {})
+        
+        # If not found, try to find a similar key (for debugging)
         if not candidate_logs or not isinstance(candidate_logs, dict):
+            logger.warning(f"No logs found for candidate key '{candidate_key}'. Available keys: {list(answer_logs.keys())}")
+            # Try to find a key that's close (for debugging)
+            for key in answer_logs.keys():
+                if candidate_key.lower() in key.lower() or key.lower() in candidate_key.lower():
+                    logger.info(f"Found similar key: '{key}' (searching for '{candidate_key}')")
             return success_response("Answer logs fetched successfully", [])
+        
+        logger.info(f"Found candidate logs with question keys: {list(candidate_logs.keys())}")
 
         # Collect all questions to map question indices
         all_questions = []
@@ -1146,14 +1166,19 @@ async def get_answer_logs(
                 if 0 <= question_index < len(all_questions):
                     question = all_questions[question_index]
                     # Serialize log entries to ensure they're JSON-serializable
+                    # Use array index + 1 as version fallback to handle any race conditions during write
                     serialized_logs = []
-                    for log_entry in log_entries:
+                    for idx, log_entry in enumerate(log_entries):
                         if isinstance(log_entry, dict):
+                            # Use stored version if available, otherwise use array index + 1
+                            # This ensures versions are always correct even if there was a race condition
+                            stored_version = log_entry.get("version", 0)
+                            version = stored_version if stored_version > 0 else (idx + 1)
                             serialized_logs.append({
                                 "answer": str(log_entry.get("answer", "")),
                                 "questionType": str(log_entry.get("questionType", "")),
                                 "timestamp": str(log_entry.get("timestamp", "")),
-                                "version": int(log_entry.get("version", 0)),
+                                "version": int(version),
                             })
                     
                     formatted_logs.append({
