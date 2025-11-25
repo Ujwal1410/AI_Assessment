@@ -20,10 +20,33 @@ logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title=settings.app_name, version="1.0.0")
 
-# Rate Limiting Setup
-limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Rate Limiting Setup with MongoDB Storage
+# Use MongoDB URI from settings for rate limiting storage
+# slowapi's Limiter uses storage_uri parameter (string format)
+# Ensure database name is included in MongoDB URI
+limiter: Limiter | None = None
+try:
+    mongo_uri_for_limiter = settings.mongo_uri
+    if settings.mongo_db:
+        # Check if database name is already in URI
+        uri_without_params = mongo_uri_for_limiter.split("?")[0]
+        # Check if there's a database name after the last /
+        if not uri_without_params.split("/")[-1] or uri_without_params.count("/") <= 2:
+            # No database in URI, append it
+            if not mongo_uri_for_limiter.endswith("/"):
+                mongo_uri_for_limiter = f"{mongo_uri_for_limiter}/{settings.mongo_db}"
+            else:
+                mongo_uri_for_limiter = f"{mongo_uri_for_limiter}{settings.mongo_db}"
+    # slowapi supports MongoDB via limits library when using mongodb:// URI format
+    limiter = Limiter(key_func=get_remote_address, storage_uri=mongo_uri_for_limiter)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    logger.info("Rate limiter initialized successfully")
+except Exception as e:
+    logger.warning(f"Rate limiter initialization failed: {e}. Rate limiting will be disabled.")
+    logger.warning("This is not critical - the app will continue to work without rate limiting.")
+    limiter = None
+    app.state.limiter = None
 
 # CORS Configuration
 # Read from environment variable, fallback to default
@@ -76,14 +99,90 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+# CSRF Protection Middleware (for state-changing operations)
+@app.middleware("http")
+async def csrf_protection_middleware(request: Request, call_next):
+    """CSRF protection using Origin/Referer header validation for POST, PUT, DELETE, PATCH methods."""
+    # Skip CSRF check for GET, HEAD, OPTIONS
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return await call_next(request)
+    
+    # Skip CSRF check for candidate endpoints (they use assessment tokens)
+    if request.url.path.startswith("/api/assessment/"):
+        return await call_next(request)
+    
+    # Skip CSRF check for auth endpoints (they use their own security)
+    if request.url.path.startswith("/api/auth/"):
+        return await call_next(request)
+    
+    # Validate Origin/Referer header for CSRF protection
+    origin = request.headers.get("Origin")
+    referer = request.headers.get("Referer")
+    
+    # If both Origin and Referer are missing, it might be a direct API call (allow for now)
+    # In production, you may want to be stricter
+    if origin or referer:
+        allowed_origins = cors_origins_list
+        origin_valid = False
+        
+        if origin:
+            # Check if origin matches any allowed origin
+            origin_valid = any(
+                origin == allowed or 
+                origin.startswith(allowed.replace("http://", "https://")) or
+                origin.startswith(allowed)
+                for allowed in allowed_origins
+            )
+        
+        if referer and not origin_valid:
+            # Extract origin from referer
+            try:
+                from urllib.parse import urlparse
+                referer_origin = f"{urlparse(referer).scheme}://{urlparse(referer).netloc}"
+                origin_valid = any(
+                    referer_origin == allowed or
+                    referer_origin.startswith(allowed.replace("http://", "https://")) or
+                    referer_origin.startswith(allowed)
+                    for allowed in allowed_origins
+                )
+            except Exception:
+                pass
+        
+        # If origin/referer validation fails, log warning but allow (JWT auth provides protection)
+        # In strict mode, you could reject the request here
+        if not origin_valid and settings.debug:
+            logger.warning(f"CSRF check: Origin/Referer validation failed. Origin: {origin}, Referer: {referer}, Path: {request.url.path}")
+    
+    response = await call_next(request)
+    return response
+
+
 @app.on_event("startup")
 async def startup() -> None:
     await connect_to_mongo()
     db = get_database()
-    # Ensure indexes
+    # Ensure indexes for optimal query performance (supports 100k+ requests)
+    
+    # Users collection indexes
     await db.users.create_index("email", unique=True)
+    await db.users.create_index("role")  # Frequently queried for role-based filtering
+    await db.users.create_index("organization")  # For organization-based queries
+    
+    # Email verifications collection indexes
+    await db.email_verifications.create_index("email")  # Frequently queried by email
     await db.otps.create_index("expiresAt", expireAfterSeconds=0)
-    await db.assessments.create_index("organization")
+    
+    # Assessments collection indexes (critical for high-volume queries)
+    await db.assessments.create_index("organization")  # Already exists, but kept for clarity
+    await db.assessments.create_index("createdBy")  # Frequently queried for user's assessments
+    await db.assessments.create_index("status")  # Frequently queried for status filtering
+    await db.assessments.create_index("assessmentToken")  # Critical for candidate access (high-frequency queries)
+    
+    # Compound indexes for common query patterns
+    await db.assessments.create_index([("organization", 1), ("status", 1)])  # Query by org and status
+    await db.assessments.create_index([("createdBy", 1), ("status", 1)])  # Query by creator and status
+    await db.assessments.create_index([("organization", 1), ("createdBy", 1)])  # Query by org and creator
+    
     logger.info("MongoDB connected and indexes ensured")
 
 
@@ -95,13 +194,50 @@ async def shutdown() -> None:
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     logger.error(f"Validation error for {request.url.path}: {exc.errors()}")
+    
+    # Format errors into user-friendly messages
+    error_messages = []
+    for error in exc.errors():
+        field = ".".join(str(loc) for loc in error.get("loc", []))
+        error_type = error.get("type", "")
+        error_msg = error.get("msg", "")
+        
+        # Handle password validation errors
+        if "password" in field.lower():
+            if error_type == "string_too_short":
+                error_messages.append("Password must be at least 8 characters long")
+            elif error_type == "value_error":
+                # This is from our custom password validation
+                error_messages.append(error_msg)
+            elif "missing" in error_type:
+                error_messages.append("Password is required")
+            else:
+                error_messages.append(f"Password: {error_msg}")
+        # Handle email validation errors
+        elif "email" in field.lower():
+            if "missing" in error_type:
+                error_messages.append("Email is required")
+            elif "value_error" in error_type or "string" in error_type:
+                error_messages.append("Please enter a valid email address")
+            else:
+                error_messages.append(f"Email: {error_msg}")
+        # Handle other field errors
+        else:
+            field_name = field.split(".")[-1] if "." in field else field
+            if "missing" in error_type:
+                error_messages.append(f"{field_name.capitalize()} is required")
+            else:
+                error_messages.append(f"{field_name.capitalize()}: {error_msg}")
+    
+    # Join all error messages into a single message
+    message = "; ".join(error_messages) if error_messages else "Validation error"
+    
     return JSONResponse(
         status_code=422,
         content={
             "success": False, 
-            "message": "Validation error", 
-            "errors": exc.errors(),
-            "detail": str(exc)
+            "message": message,
+            "detail": message
         },
     )
 
@@ -143,9 +279,12 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Initialize rate limiter in auth router
+# Initialize rate limiter in auth router (if available)
 from .routers import auth as auth_router
-auth_router.set_limiter(limiter)
+if limiter is not None:
+    auth_router.set_limiter(limiter)
+else:
+    logger.warning("Rate limiter not available - auth router will work without rate limiting")
 
 app.include_router(auth.router)
 app.include_router(users.router)

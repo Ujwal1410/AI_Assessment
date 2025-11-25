@@ -10,7 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
 
 from ..core.dependencies import get_current_user, require_editor, require_org_admin, require_super_admin
-from ..core.security import get_password_hash
+from ..core.security import get_password_hash, sanitize_text_field
 from ..db.mongo import get_db
 from ..models.constants import USER_ROLES
 from ..schemas.user import UserProfileUpdateRequest, UserRegisterRequest, UserStatusUpdateRequest
@@ -61,8 +61,11 @@ async def register_user(
         except ValueError:
             organization_id = None
 
+    # Sanitize user name to prevent XSS
+    sanitized_name = sanitize_text_field(payload.name)
+    
     user_doc: Dict[str, Any] = {
-        "name": payload.name,
+        "name": sanitized_name,
         "email": email,
         "password": get_password_hash(payload.password),
         "role": payload.role,
@@ -148,6 +151,9 @@ async def update_user_profile(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    # Sanitize name field if present
+    if "name" in updates and updates["name"]:
+        updates["name"] = sanitize_text_field(updates["name"])
     if not updates:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
 

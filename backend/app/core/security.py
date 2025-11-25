@@ -179,3 +179,33 @@ def verify_password(password: str, hashed_password: str) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
     except ValueError:
         return False
+
+
+def sanitize_input(text: str) -> str:
+    """Sanitize user input to prevent XSS attacks by escaping HTML characters."""
+    if not text:
+        return text
+    import html
+    return html.escape(str(text).strip())
+
+
+def sanitize_text_field(text: str, max_length: int | None = None) -> str:
+    """Sanitize and optionally truncate text field."""
+    if not text:
+        return ""
+    sanitized = sanitize_input(text)
+    if max_length and len(sanitized) > max_length:
+        return sanitized[:max_length]
+    return sanitized
+
+
+def generate_csrf_token() -> str:
+    """Generate a random CSRF token."""
+    return base64.urlsafe_b64encode(os.urandom(32)).decode("utf-8").rstrip("=")
+
+
+def verify_csrf_token(token: str, stored_token: str) -> bool:
+    """Verify CSRF token using constant-time comparison."""
+    if not token or not stored_token:
+        return False
+    return hmac.compare_digest(token, stored_token)

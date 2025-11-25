@@ -16,11 +16,16 @@ async def connect_to_mongo() -> None:
     settings = get_settings()
     if _client is None:
         # Add connection timeout and server selection timeout to prevent hanging
+        # Configure connection pooling for high-volume requests (100k+)
         _client = AsyncIOMotorClient(
             settings.mongo_uri,
             serverSelectionTimeoutMS=5000,  # 5 seconds to find a server
             connectTimeoutMS=10000,  # 10 seconds to connect
             socketTimeoutMS=30000,  # 30 seconds for socket operations
+            maxPoolSize=1000,  # Maximum number of connections in the pool (supports 100k+ requests)
+            minPoolSize=10,  # Minimum number of connections to maintain
+            maxIdleTimeMS=30000,  # Close connections idle for 30 seconds
+            waitQueueTimeoutMS=5000,  # Wait up to 5 seconds for a connection from the pool
         )
         _db = _client[settings.mongo_db]
         # Test the connection

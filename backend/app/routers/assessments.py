@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from ..core.dependencies import require_editor
+from ..core.security import sanitize_input, sanitize_text_field
 from ..db.mongo import get_db
 from ..schemas.assessment import (
     AddCustomTopicsRequest,
@@ -195,7 +196,13 @@ async def generate_topics(
 
     # Handle Technical topics
     if "technical" in assessment_types:
-        topics = await generate_topics_from_input(payload.jobRole, payload.experience, payload.skills, payload.numTopics)
+        # Sanitize user inputs
+        sanitized_job_role = sanitize_text_field(payload.jobRole)
+        sanitized_skills = [sanitize_text_field(skill) for skill in payload.skills]
+        
+        topics = await generate_topics_from_input(sanitized_job_role, payload.experience, sanitized_skills, payload.numTopics)
+        # Sanitize generated topics
+        sanitized_topics = [sanitize_text_field(topic) for topic in topics]
         technical_topic_docs = [
             {
                 "topic": t,
@@ -207,22 +214,26 @@ async def generate_topics(
                 "questions": [],
                 "questionConfigs": [],
             }
-            for t in topics
+            for t in sanitized_topics
         ]
         topic_docs.extend(technical_topic_docs)
-        custom_topics.extend(topics)
-        title_parts.append(payload.jobRole)
-        description_parts.append(f"{payload.jobRole} test for {payload.experience} exp level")
+        custom_topics.extend(sanitized_topics)
+        title_parts.append(sanitized_job_role)
+        description_parts.append(f"{sanitized_job_role} test for {payload.experience} exp level")
 
     # Build title and description
-    if len(title_parts) == 1:
-        title = f"{title_parts[0]} Assessment"
-    elif len(title_parts) == 2:
-        title = f"{title_parts[0]} & {title_parts[1]} Assessment"
+    # Sanitize title parts to prevent XSS
+    sanitized_title_parts = [sanitize_text_field(part) for part in title_parts]
+    sanitized_description_parts = [sanitize_text_field(part) for part in description_parts]
+    
+    if len(sanitized_title_parts) == 1:
+        title = f"{sanitized_title_parts[0]} Assessment"
+    elif len(sanitized_title_parts) == 2:
+        title = f"{sanitized_title_parts[0]} & {sanitized_title_parts[1]} Assessment"
     else:
         title = "Assessment"
 
-    description = ". ".join(description_parts) if description_parts else "Assessment"
+    description = ". ".join(sanitized_description_parts) if sanitized_description_parts else "Assessment"
 
     assessment_doc: Dict[str, Any] = {
         "title": title,
@@ -277,17 +288,23 @@ async def update_topic_settings(
 
     topics = assessment.get("topics", [])
     for update in payload.updatedTopics:
-        topic_obj = next((t for t in topics if t.get("topic") == update.topic), None)
+        # Sanitize topic name
+        sanitized_topic = sanitize_text_field(update.topic)
+        topic_obj = next((t for t in topics if t.get("topic") == sanitized_topic), None)
         if not topic_obj:
             continue
         topic_obj = _ensure_topic_structure(topic_obj)
+        
+        # Update topic name if sanitized
+        if sanitized_topic != update.topic:
+            topic_obj["topic"] = sanitized_topic
 
         if update.numQuestions is not None:
             topic_obj["numQuestions"] = update.numQuestions
         if update.questionTypes is not None:
             topic_obj["questionTypes"] = update.questionTypes
         if update.difficulty:
-            topic_obj["difficulty"] = update.difficulty
+            topic_obj["difficulty"] = sanitize_text_field(update.difficulty) if update.difficulty else update.difficulty
 
         if update.questions:
             for idx, question_config in enumerate(update.questions):
@@ -322,7 +339,8 @@ async def add_custom_topics(
 
     for topic_data in payload.newTopics:
         if isinstance(topic_data, str):
-            topic_name = topic_data
+            # Sanitize topic name
+            topic_name = sanitize_text_field(topic_data)
             exists = any(t.get("topic") == topic_name for t in topics)
             if not exists:
                 topics.append(
@@ -339,7 +357,9 @@ async def add_custom_topics(
             custom_topics.add(topic_name)
         else:
             topic_dict = topic_data.model_dump(exclude_unset=True)
-            topic_name = topic_dict.get("topic")
+            # Sanitize topic name and difficulty
+            topic_name = sanitize_text_field(topic_dict.get("topic", ""))
+            sanitized_difficulty = sanitize_text_field(topic_dict.get("difficulty", "Medium")) if topic_dict.get("difficulty") else "Medium"
             exists = any(t.get("topic") == topic_name for t in topics)
             if not exists:
                 topics.append(
@@ -347,7 +367,7 @@ async def add_custom_topics(
                         "topic": topic_name,
                         "numQuestions": topic_dict.get("numQuestions", 0),
                         "questionTypes": topic_dict.get("questionTypes", []),
-                        "difficulty": topic_dict.get("difficulty", "Medium"),
+                        "difficulty": sanitized_difficulty,
                         "source": "User",
                         "questions": [],
                         "questionConfigs": topic_dict.get("questionConfigs", []),
@@ -448,10 +468,15 @@ async def create_assessment_from_job_designation(
         question_types = await get_relevant_question_types_from_domain(payload.jobDesignation)
         
         # Create assessment document
-        skills_str = ", ".join(payload.selectedSkills)
+        # Sanitize user inputs to prevent XSS
+        sanitized_job_designation = sanitize_text_field(payload.jobDesignation)
+        sanitized_skills = [sanitize_text_field(skill) for skill in payload.selectedSkills]
+        skills_str = ", ".join(sanitized_skills)
+        sanitized_topics = [sanitize_text_field(topic) for topic in topics]
+        
         assessment_doc: Dict[str, Any] = {
-            "title": f"{payload.jobDesignation} Assessment",
-            "description": f"Assessment for {payload.jobDesignation} - Skills: {skills_str} (Experience: {payload.experienceMin}-{payload.experienceMax} years)",
+            "title": f"{sanitized_job_designation} Assessment",
+            "description": f"Assessment for {sanitized_job_designation} - Skills: {skills_str} (Experience: {payload.experienceMin}-{payload.experienceMax} years)",
             "topics": [
                 {
                     "topic": topic,
@@ -463,9 +488,9 @@ async def create_assessment_from_job_designation(
                     "questions": [],
                     "questionConfigs": [],
                 }
-                for topic in topics
+                for topic in sanitized_topics
             ],
-            "customTopics": topics,
+            "customTopics": sanitized_topics,
             "assessmentType": ["technical"],
             "status": "draft",
             "createdBy": to_object_id(current_user.get("id")),
@@ -473,8 +498,8 @@ async def create_assessment_from_job_designation(
             "isGenerated": False,
             "createdAt": _now_utc(),
             "updatedAt": _now_utc(),
-            "jobDesignation": payload.jobDesignation,
-            "selectedSkills": payload.selectedSkills,
+            "jobDesignation": sanitized_job_designation,
+            "selectedSkills": sanitized_skills,
             "experienceMin": payload.experienceMin,
             "experienceMax": payload.experienceMax,
             "availableQuestionTypes": question_types,
@@ -507,9 +532,13 @@ async def create_assessment_from_skill(
         question_types = await get_relevant_question_types(payload.skill)
         
         # Create assessment document
+        # Sanitize user inputs to prevent XSS
+        sanitized_skill = sanitize_text_field(payload.skill)
+        sanitized_topics = [sanitize_text_field(topic) for topic in topics]
+        
         assessment_doc: Dict[str, Any] = {
-            "title": f"{payload.skill} Assessment",
-            "description": f"Assessment for {payload.skill} (Experience: {payload.experienceMin}-{payload.experienceMax} years)",
+            "title": f"{sanitized_skill} Assessment",
+            "description": f"Assessment for {sanitized_skill} (Experience: {payload.experienceMin}-{payload.experienceMax} years)",
             "topics": [
                 {
                     "topic": topic,
@@ -521,9 +550,9 @@ async def create_assessment_from_skill(
                     "questions": [],
                     "questionConfigs": [],
                 }
-                for topic in topics
+                for topic in sanitized_topics
             ],
-            "customTopics": topics,
+            "customTopics": sanitized_topics,
             "assessmentType": ["technical"],
             "status": "draft",
             "createdBy": to_object_id(current_user.get("id")),
@@ -531,7 +560,7 @@ async def create_assessment_from_skill(
             "isGenerated": False,
             "createdAt": _now_utc(),
             "updatedAt": _now_utc(),
-            "skill": payload.skill,
+            "skill": sanitized_skill,
             "experienceMin": payload.experienceMin,
             "experienceMax": payload.experienceMax,
             "availableQuestionTypes": question_types,
@@ -919,9 +948,9 @@ async def finalize_assessment(
 
         assessment["status"] = "ready"
         if payload.title:
-            assessment["title"] = payload.title
+            assessment["title"] = sanitize_text_field(payload.title)
         if payload.description:
-            assessment["description"] = payload.description
+            assessment["description"] = sanitize_text_field(payload.description)
         if payload.questionTypeTimes:
             assessment["questionTypeTimes"] = payload.questionTypeTimes
         if payload.enablePerSectionTimers is not None:

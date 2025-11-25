@@ -15,7 +15,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from ..core.config import get_settings
-from ..core.security import create_access_token, create_refresh_token, get_password_hash, verify_password
+from ..core.security import create_access_token, create_refresh_token, get_password_hash, verify_password, sanitize_text_field
 from ..db.mongo import get_db
 from ..schemas.auth import (
     GoogleSignupRequest,
@@ -43,9 +43,11 @@ def set_limiter(limiter_instance: Limiter):
     limiter = limiter_instance
 
 def _apply_rate_limit(func):
-    """Apply rate limiting decorator if limiter is available."""
+    """Apply rate limiting decorator if limiter is available.
+    High limit to support 100k+ requests while maintaining basic security."""
     if limiter:
-        return limiter.limit("10/15minutes")(func)
+        # Increased limit: 10000 requests per hour (supports high-volume usage)
+        return limiter.limit("10000/hour")(func)
     return func
 
 
@@ -170,8 +172,10 @@ async def _verify_code(db: AsyncIOMotorDatabase, email: str, code: str) -> bool:
     
     if pending_signup:
         # This is a new signup - create the user account now
+        # Sanitize name from pending signup data
+        sanitized_name = sanitize_text_field(pending_signup.get("name", "")) if pending_signup.get("name") else ""
         user_doc = {
-            "name": pending_signup.get("name"),
+            "name": sanitized_name,
             "email": normalized,
             "password": pending_signup.get("password"),
             "role": pending_signup.get("role"),
@@ -270,7 +274,7 @@ async def super_admin_signup(
 
     # Store pending signup data (will be created after verification)
     pending_signup_data = {
-        "name": payload.name,
+        "name": sanitize_text_field(payload.name),
         "password": get_password_hash(payload.password),
         "role": "super_admin",
     }
@@ -314,6 +318,8 @@ async def org_signup_google(
 
     email = _normalize_email(ticket.get("email", ""))
     name = ticket.get("name") or email.split("@")[0]
+    # Sanitize name to prevent XSS
+    name = sanitize_text_field(name)
     google_id = ticket.get("sub")
 
     if not email:
@@ -698,7 +704,7 @@ async def org_signup_email(
 
     # Store pending signup data (will be created after verification)
     pending_signup_data = {
-        "name": payload.name,
+        "name": sanitize_text_field(payload.name),
         "password": get_password_hash(payload.password),
         "role": "org_admin",
     }
@@ -747,7 +753,7 @@ async def oauth_login(
 
         if not user:
             user_doc = {
-                "name": payload.name or email.split("@")[0],
+                "name": sanitize_text_field(payload.name or email.split("@")[0]),
                 "email": email,
                 "role": payload.role or "org_admin",
                 "provider": payload.provider,
@@ -759,7 +765,8 @@ async def oauth_login(
         else:
             updates = {}
             if payload.name and not user.get("name"):
-                updates["name"] = payload.name
+                # Sanitize name to prevent XSS
+                updates["name"] = sanitize_text_field(payload.name)
             if payload.role and payload.role != user.get("role"):
                 updates["role"] = payload.role
             if payload.provider and payload.provider != user.get("provider"):
