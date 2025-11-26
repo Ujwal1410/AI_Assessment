@@ -41,6 +41,12 @@ from ..services.ai import (
 )
 from ..utils.mongo import convert_object_ids, serialize_document, to_object_id
 from ..utils.responses import success_response
+from ..models.aptitude_topics import (
+    APTITUDE_MAIN_TOPICS,
+    APTITUDE_TOPICS_STRUCTURE,
+    get_aptitude_subtopics,
+    get_aptitude_question_types,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +116,64 @@ def _ensure_topic_structure(topic: Dict[str, Any]) -> Dict[str, Any]:
     topic.setdefault("questionConfigs", [])
     topic.setdefault("questionTypes", [])
     return topic
+
+
+def _is_aptitude_skill(skill: str) -> bool:
+    """Check if a skill is aptitude-related."""
+    skill_lower = skill.lower().strip()
+    aptitude_keywords = ["aptitude", "apti"]
+    
+    # Check for aptitude keywords
+    if any(keyword in skill_lower for keyword in aptitude_keywords):
+        return True
+    
+    # Check if skill matches aptitude main topics
+    aptitude_main_topics_lower = [topic.lower() for topic in APTITUDE_MAIN_TOPICS]
+    for apt_topic in aptitude_main_topics_lower:
+        if apt_topic in skill_lower or skill_lower in apt_topic:
+            return True
+    
+    # Check for common variations
+    if "quantitative" in skill_lower or "logical reasoning" in skill_lower or "verbal ability" in skill_lower:
+        return True
+    
+    return False
+
+
+def _is_aptitude_requested(job_designation: str, selected_skills: List[str]) -> bool:
+    """Check if aptitude assessment is requested based on job designation or selected skills."""
+    # Normalize inputs for case-insensitive matching
+    job_designation_lower = job_designation.lower().strip()
+    
+    # Check job designation
+    aptitude_keywords = ["aptitude", "apti"]
+    if any(keyword in job_designation_lower for keyword in aptitude_keywords):
+        return True
+    
+    # Check selected skills
+    for skill in selected_skills:
+        if _is_aptitude_skill(skill):
+            return True
+    
+    return False
+
+
+def _separate_skills(selected_skills: List[str]) -> tuple[List[str], List[str]]:
+    """Separate selected skills into aptitude skills and technical skills.
+    
+    Returns:
+        Tuple of (aptitude_skills, technical_skills)
+    """
+    aptitude_skills = []
+    technical_skills = []
+    
+    for skill in selected_skills:
+        if _is_aptitude_skill(skill):
+            aptitude_skills.append(skill)
+        else:
+            technical_skills.append(skill)
+    
+    return aptitude_skills, technical_skills
 
 
 @router.post("/generate-topics")
@@ -457,29 +521,66 @@ async def create_assessment_from_job_designation(
 ):
     """Create a new assessment with topics from job designation and selected skills."""
     try:
-        # Generate topics from selected skills
-        topics = await generate_topics_from_selected_skills(
-            payload.selectedSkills, 
-            payload.experienceMin, 
-            payload.experienceMax
-        )
-        
-        # Get question types based on the job designation/domain (AI-powered detection)
-        question_types = await get_relevant_question_types_from_domain(payload.jobDesignation)
-        
-        # Create assessment document
         # Sanitize user inputs to prevent XSS
         sanitized_job_designation = sanitize_text_field(payload.jobDesignation)
         sanitized_skills = [sanitize_text_field(skill) for skill in payload.selectedSkills]
-        skills_str = ", ".join(sanitized_skills)
-        sanitized_topics = [sanitize_text_field(topic) for topic in topics]
         
-        assessment_doc: Dict[str, Any] = {
-            "title": f"{sanitized_job_designation} Assessment",
-            "description": f"Assessment for {sanitized_job_designation} - Skills: {skills_str} (Experience: {payload.experienceMin}-{payload.experienceMax} years)",
-            "topics": [
-                {
-                    "topic": topic,
+        # Separate skills into aptitude and technical skills
+        aptitude_skills, technical_skills = _separate_skills(sanitized_skills)
+        
+        # Check if aptitude is requested (from job designation or skills)
+        is_aptitude = _is_aptitude_requested(sanitized_job_designation, sanitized_skills)
+        
+        # Build topics list
+        topic_docs = []
+        custom_topics = []
+        assessment_types = []
+        all_question_types = []
+        has_technical_topics = False
+        
+        # Generate aptitude topics if requested
+        if is_aptitude:
+            aptitude_topics = APTITUDE_MAIN_TOPICS.copy()
+            
+            for main_topic in aptitude_topics:
+                sanitized_main_topic = sanitize_text_field(main_topic)
+                sub_topics = get_aptitude_subtopics(main_topic)
+                
+                topic_doc = {
+                    "topic": sanitized_main_topic,
+                    "numQuestions": 0,
+                    "questionTypes": ["MCQ"],  # Aptitude topics use MCQ
+                    "difficulty": "Medium",
+                    "source": "Predefined",
+                    "category": "aptitude",
+                    "questions": [],
+                    "questionConfigs": [],
+                    "isAptitude": True,  # Flag to identify aptitude topics
+                    "subTopics": sub_topics,  # List of available sub-topics
+                    "aptitudeStructure": APTITUDE_TOPICS_STRUCTURE[main_topic],  # Full structure for frontend
+                }
+                topic_docs.append(topic_doc)
+                custom_topics.append(sanitized_main_topic)
+            
+            assessment_types.append("aptitude")
+            all_question_types.append("MCQ")
+        
+        # Generate technical topics if there are technical skills
+        if technical_skills:
+            # Generate topics from technical skills only
+            technical_topics = await generate_topics_from_selected_skills(
+                technical_skills, 
+                payload.experienceMin, 
+                payload.experienceMax
+            )
+            
+            # Get question types based on the job designation/domain (AI-powered detection)
+            question_types = await get_relevant_question_types_from_domain(payload.jobDesignation)
+            
+            for topic in technical_topics:
+                sanitized_topic = sanitize_text_field(topic)
+                topic_doc = {
+                    "topic": sanitized_topic,
                     "numQuestions": 0,
                     "questionTypes": [question_types[0] if question_types else "Subjective"],  # Default question type
                     "difficulty": "Medium",  # Default difficulty
@@ -487,11 +588,45 @@ async def create_assessment_from_job_designation(
                     "category": "technical",
                     "questions": [],
                     "questionConfigs": [],
+                    "isAptitude": False,  # Flag to identify technical topics
                 }
-                for topic in sanitized_topics
-            ],
-            "customTopics": sanitized_topics,
-            "assessmentType": ["technical"],
+                topic_docs.append(topic_doc)
+                custom_topics.append(sanitized_topic)
+            
+            assessment_types.append("technical")
+            # Add technical question types (avoid duplicates)
+            for qtype in question_types:
+                if qtype not in all_question_types:
+                    all_question_types.append(qtype)
+            has_technical_topics = True
+        
+        # If no topics were generated, raise an error
+        if not topic_docs:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid skills selected. Please select at least one technical skill or aptitude."
+            )
+        
+        # Build description
+        if is_aptitude and has_technical_topics:
+            technical_skills_str = ", ".join(technical_skills)
+            description = f"Mixed Assessment (Aptitude + Technical) for {sanitized_job_designation} - Technical Skills: {technical_skills_str} (Experience: {payload.experienceMin}-{payload.experienceMax} years)"
+        elif is_aptitude:
+            description = f"Aptitude Assessment for {sanitized_job_designation} (Experience: {payload.experienceMin}-{payload.experienceMax} years)"
+        else:
+            technical_skills_str = ", ".join(technical_skills)
+            description = f"Assessment for {sanitized_job_designation} - Skills: {technical_skills_str} (Experience: {payload.experienceMin}-{payload.experienceMax} years)"
+        
+        # Ensure we have at least one question type
+        if not all_question_types:
+            all_question_types = ["Subjective"]  # Fallback
+        
+        assessment_doc: Dict[str, Any] = {
+            "title": f"{sanitized_job_designation} Assessment",
+            "description": description,
+            "topics": topic_docs,
+            "customTopics": custom_topics,
+            "assessmentType": assessment_types if assessment_types else ["technical"],
             "status": "draft",
             "createdBy": to_object_id(current_user.get("id")),
             "organization": to_object_id(current_user.get("organization")) if current_user.get("organization") else None,
@@ -502,7 +637,8 @@ async def create_assessment_from_job_designation(
             "selectedSkills": sanitized_skills,
             "experienceMin": payload.experienceMin,
             "experienceMax": payload.experienceMax,
-            "availableQuestionTypes": question_types,
+            "availableQuestionTypes": all_question_types,
+            "isAptitudeAssessment": is_aptitude,  # Flag for frontend (true if aptitude is included)
         }
         
         result = await db.assessments.insert_one(assessment_doc)
@@ -512,7 +648,7 @@ async def create_assessment_from_job_designation(
             "Assessment created successfully",
             {
                 "assessment": serialize_document(assessment_doc),
-                "questionTypes": question_types,
+                "questionTypes": assessment_doc.get("availableQuestionTypes", ["MCQ"]),
             }
         )
     except Exception as exc:
@@ -645,8 +781,18 @@ async def generate_questions_from_config(
             config[f"Q{i}type"] = topic_config.questionType
             config[f"Q{i}difficulty"] = topic_config.difficulty
         
+        # For aptitude topics, build topic string with sub-topic and question type
+        topic_for_generation = topic_config.topic
+        if getattr(topic_config, 'isAptitude', False):
+            sub_topic = getattr(topic_config, 'subTopic', None)
+            question_type = topic_config.questionType
+            if sub_topic:
+                # Format: "Main Topic - Sub Topic: Question Type"
+                # Example: "QUANTITATIVE APTITUDE (Maths) - Number Systems: Divisibility rules"
+                topic_for_generation = f"{topic_config.topic} - {sub_topic}: {question_type}"
+        
         try:
-            questions = await generate_questions_for_topic_safe(topic_config.topic, config)
+            questions = await generate_questions_for_topic_safe(topic_for_generation, config)
             if questions:
                 # Auto-generate time and score for each question
                 for q in questions:

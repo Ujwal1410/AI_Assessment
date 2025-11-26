@@ -13,6 +13,15 @@ interface Topic {
   questionType: string;
   difficulty: string;
   numQuestions: number;
+  // For aptitude topics
+  isAptitude?: boolean;
+  subTopic?: string; // Selected sub-topic (e.g., "Number Systems")
+  aptitudeStructure?: {
+    subTopics: {
+      [key: string]: string[]; // Sub-topic name -> question types
+    };
+  };
+  availableSubTopics?: string[]; // List of available sub-topics for this main topic
 }
 
 export default function CreateNewAssessmentPage() {
@@ -206,16 +215,49 @@ export default function CreateNewAssessmentPage() {
 
       if (response.data?.success) {
         const data = response.data.data;
+        const isAptitude = data.assessment?.isAptitudeAssessment || false;
         setTopics(data.assessment.topics.map((t: any) => t.topic));
         setAvailableQuestionTypes(data.questionTypes || QUESTION_TYPES);
         setAssessmentId(data.assessment._id || data.assessment.id);
         setTopicConfigs(
-          data.assessment.topics.map((t: any) => ({
-            topic: t.topic,
-            questionType: t.questionTypes?.[0] || data.questionTypes?.[0] || QUESTION_TYPES[0], // Use default from backend
-            difficulty: t.difficulty || "Medium", // Use default from backend
-            numQuestions: 1,
-          }))
+          data.assessment.topics.map((t: any) => {
+            // Check if this specific topic is an aptitude topic
+            const isTopicAptitude = t.isAptitude === true || (isAptitude && t.category === "aptitude");
+            
+            if (isTopicAptitude) {
+              // Handle aptitude topic
+              const availableSubTopics = t.availableSubTopics || t.subTopics || [];
+              const defaultSubTopic = availableSubTopics.length > 0 ? availableSubTopics[0] : undefined;
+              const selectedSubTopic = t.subTopic || defaultSubTopic;
+              
+              // Get question type based on selected sub-topic
+              let defaultQuestionType = "MCQ"; // Default for aptitude
+              if (selectedSubTopic && t.aptitudeStructure?.subTopics?.[selectedSubTopic]) {
+                const questionTypes = t.aptitudeStructure.subTopics[selectedSubTopic];
+                defaultQuestionType = questionTypes.length > 0 ? questionTypes[0] : "MCQ";
+              }
+              
+              return {
+                topic: t.topic,
+                questionType: defaultQuestionType,
+                difficulty: t.difficulty || "Medium",
+                numQuestions: 1,
+                isAptitude: true,
+                subTopic: selectedSubTopic,
+                aptitudeStructure: t.aptitudeStructure || undefined,
+                availableSubTopics: availableSubTopics,
+              };
+            } else {
+              // Handle technical topic
+              return {
+                topic: t.topic,
+                questionType: t.questionTypes?.[0] || data.questionTypes?.[0] || QUESTION_TYPES[0],
+                difficulty: t.difficulty || "Medium",
+                numQuestions: 1,
+                isAptitude: false,
+              };
+            }
+          })
         );
       } else {
         setError("Failed to generate topics");
@@ -232,18 +274,29 @@ export default function CreateNewAssessmentPage() {
   const handleUpdateTopicConfig = (index: number, field: keyof Topic, value: any) => {
     const updated = [...topicConfigs];
     updated[index] = { ...updated[index], [field]: value };
+    
+    // For aptitude topics: when sub-topic changes, update available question types
+    if (field === "subTopic" && updated[index].isAptitude && updated[index].aptitudeStructure) {
+      const subTopic = value;
+      const mainTopic = updated[index].topic;
+      const questionTypes = updated[index].aptitudeStructure?.subTopics[subTopic] || [];
+      // Reset question type to first available type when sub-topic changes
+      if (questionTypes.length > 0) {
+        updated[index].questionType = questionTypes[0];
+      }
+    }
+    
     setTopicConfigs(updated);
   };
 
-  const handleAddNewTopic = () => {
-    const newTopic: Topic = {
-      topic: "",
-      questionType: availableQuestionTypes[0] || QUESTION_TYPES[0],
-      difficulty: "Medium",
-      numQuestions: 1,
-    };
-    setTopicConfigs([...topicConfigs, newTopic]);
+  // Helper function to get question types for a given aptitude topic and sub-topic
+  const getAptitudeQuestionTypes = (config: Topic): string[] => {
+    if (!config.isAptitude || !config.aptitudeStructure || !config.subTopic) {
+      return availableQuestionTypes;
+    }
+    return config.aptitudeStructure.subTopics[config.subTopic] || [];
   };
+
 
   const handleRemoveTopic = (index: number) => {
     setTopicConfigs(topicConfigs.filter((_, i) => i !== index));
@@ -270,15 +323,48 @@ export default function CreateNewAssessmentPage() {
 
         if (response.data?.success) {
           const data = response.data.data;
+          const isAptitude = data.assessment?.isAptitudeAssessment || false;
           setTopics(data.assessment.topics.map((t: any) => t.topic));
           setAvailableQuestionTypes(data.questionTypes || QUESTION_TYPES);
           setAssessmentId(data.assessment._id || data.assessment.id);
-          const newTopicConfigs = data.assessment.topics.map((t: any) => ({
-            topic: t.topic,
-            questionType: t.questionTypes?.[0] || data.questionTypes?.[0] || QUESTION_TYPES[0],
-            difficulty: t.difficulty || "Medium",
-            numQuestions: 1,
-          }));
+          const newTopicConfigs = data.assessment.topics.map((t: any) => {
+            // Check if this specific topic is an aptitude topic
+            const isTopicAptitude = t.isAptitude === true || (isAptitude && t.category === "aptitude");
+            
+            if (isTopicAptitude) {
+              // Handle aptitude topic
+              const availableSubTopics = t.availableSubTopics || t.subTopics || [];
+              const defaultSubTopic = availableSubTopics.length > 0 ? availableSubTopics[0] : undefined;
+              const selectedSubTopic = t.subTopic || defaultSubTopic;
+              
+              // Get question type based on selected sub-topic
+              let defaultQuestionType = "MCQ"; // Default for aptitude
+              if (selectedSubTopic && t.aptitudeStructure?.subTopics?.[selectedSubTopic]) {
+                const questionTypes = t.aptitudeStructure.subTopics[selectedSubTopic];
+                defaultQuestionType = questionTypes.length > 0 ? questionTypes[0] : "MCQ";
+              }
+              
+              return {
+                topic: t.topic,
+                questionType: defaultQuestionType,
+                difficulty: t.difficulty || "Medium",
+                numQuestions: 1,
+                isAptitude: true,
+                subTopic: selectedSubTopic,
+                aptitudeStructure: t.aptitudeStructure || undefined,
+                availableSubTopics: availableSubTopics,
+              };
+            } else {
+              // Handle technical topic
+              return {
+                topic: t.topic,
+                questionType: t.questionTypes?.[0] || data.questionTypes?.[0] || QUESTION_TYPES[0],
+                difficulty: t.difficulty || "Medium",
+                numQuestions: 1,
+                isAptitude: false,
+              };
+            }
+          });
           setTopicConfigs(newTopicConfigs);
           // After generating topics, navigate to Station 2
           setError(null);
@@ -320,11 +406,16 @@ export default function CreateNewAssessmentPage() {
       return;
     }
 
+    // Validate configurations - for aptitude topics, sub-topic is required
     const invalidConfigs = validConfigs.filter(
-      (tc) => !tc.questionType || !tc.difficulty || tc.numQuestions < 1
+      (tc) => {
+        const basicInvalid = !tc.questionType || !tc.difficulty || tc.numQuestions < 1;
+        const aptitudeInvalid = tc.isAptitude && !tc.subTopic;
+        return basicInvalid || aptitudeInvalid;
+      }
     );
     if (invalidConfigs.length > 0) {
-      setError("Please complete all configurations for all topics");
+      setError("Please complete all configurations for all topics. Aptitude topics require a sub-topic selection.");
       return;
     }
 
@@ -996,44 +1087,88 @@ export default function CreateNewAssessmentPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {topicConfigs.map((config, index) => (
+                    {topicConfigs.map((config, index) => {
+                      const isAptitude = config.isAptitude || false;
+                      const isDisabled = hasVisitedReviewStation && !isConfigureEditMode;
+                      const aptitudeQuestionTypes = getAptitudeQuestionTypes(config);
+                      
+                      return (
                       <tr key={index} style={{ borderBottom: "1px solid #e2e8f0" }}>
                         <td style={{ padding: "1rem" }}>
-                          <input
-                            type="text"
-                            value={config.topic}
-                            onChange={(e) => handleUpdateTopicConfig(index, "topic", e.target.value)}
-                            placeholder="Enter topic name"
-                            disabled={hasVisitedReviewStation && !isConfigureEditMode}
-                            style={{
-                              width: "100%",
-                              padding: "0.5rem",
-                              border: "1px solid #e2e8f0",
-                              borderRadius: "0.5rem",
-                              fontSize: "0.875rem",
-                              backgroundColor: (hasVisitedReviewStation && !isConfigureEditMode) ? "#f1f5f9" : "#ffffff",
-                              cursor: (hasVisitedReviewStation && !isConfigureEditMode) ? "not-allowed" : "text",
-                              opacity: (hasVisitedReviewStation && !isConfigureEditMode) ? 0.6 : 1,
-                            }}
-                          />
+                          {isAptitude ? (
+                            // Aptitude topic: show main topic name and sub-topic dropdown
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                              <div style={{ 
+                                padding: "0.5rem",
+                                fontSize: "0.875rem",
+                                fontWeight: 600,
+                                color: "#1e293b",
+                                backgroundColor: "#f1f5f9",
+                                borderRadius: "0.25rem",
+                              }}>
+                                {config.topic}
+                              </div>
+                              <select
+                                value={config.subTopic || ""}
+                                onChange={(e) => handleUpdateTopicConfig(index, "subTopic", e.target.value)}
+                                disabled={isDisabled}
+                                style={{
+                                  width: "100%",
+                                  padding: "0.5rem",
+                                  border: "1px solid #e2e8f0",
+                                  borderRadius: "0.5rem",
+                                  fontSize: "0.875rem",
+                                  backgroundColor: isDisabled ? "#f1f5f9" : "#ffffff",
+                                  cursor: isDisabled ? "not-allowed" : "pointer",
+                                  opacity: isDisabled ? 0.6 : 1,
+                                }}
+                              >
+                                <option value="">Select sub-topic</option>
+                                {(config.availableSubTopics || []).map((subTopic: string) => (
+                                  <option key={subTopic} value={subTopic}>
+                                    {subTopic}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : (
+                            // Technical topic: show editable input
+                            <input
+                              type="text"
+                              value={config.topic}
+                              onChange={(e) => handleUpdateTopicConfig(index, "topic", e.target.value)}
+                              placeholder="Enter topic name"
+                              disabled={isDisabled}
+                              style={{
+                                width: "100%",
+                                padding: "0.5rem",
+                                border: "1px solid #e2e8f0",
+                                borderRadius: "0.5rem",
+                                fontSize: "0.875rem",
+                                backgroundColor: isDisabled ? "#f1f5f9" : "#ffffff",
+                                cursor: isDisabled ? "not-allowed" : "text",
+                                opacity: isDisabled ? 0.6 : 1,
+                              }}
+                            />
+                          )}
                         </td>
                         <td style={{ padding: "1rem" }}>
                           <select
                             value={config.questionType}
                             onChange={(e) => handleUpdateTopicConfig(index, "questionType", e.target.value)}
-                            disabled={hasVisitedReviewStation && !isConfigureEditMode}
+                            disabled={isDisabled || (isAptitude && !config.subTopic)}
                             style={{
                               width: "100%",
                               padding: "0.5rem",
                               border: "1px solid #e2e8f0",
                               borderRadius: "0.5rem",
                               fontSize: "0.875rem",
-                              backgroundColor: (hasVisitedReviewStation && !isConfigureEditMode) ? "#f1f5f9" : "#ffffff",
-                              cursor: (hasVisitedReviewStation && !isConfigureEditMode) ? "not-allowed" : "pointer",
-                              opacity: (hasVisitedReviewStation && !isConfigureEditMode) ? 0.6 : 1,
+                              backgroundColor: isDisabled ? "#f1f5f9" : "#ffffff",
+                              cursor: (isDisabled || (isAptitude && !config.subTopic)) ? "not-allowed" : "pointer",
+                              opacity: isDisabled ? 0.6 : 1,
                             }}
                           >
-                            {availableQuestionTypes.map((type) => (
+                            {(isAptitude ? aptitudeQuestionTypes : availableQuestionTypes).map((type) => (
                               <option key={type} value={type}>
                                 {type}
                               </option>
@@ -1104,25 +1239,10 @@ export default function CreateNewAssessmentPage() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
-              </div>
-
-              <div style={{ marginBottom: "2rem", display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  type="button"
-                  onClick={handleAddNewTopic}
-                  className="btn-secondary"
-                  disabled={hasVisitedReviewStation && !isConfigureEditMode}
-                  style={{ 
-                    marginTop: 0,
-                    opacity: (hasVisitedReviewStation && !isConfigureEditMode) ? 0.5 : 1,
-                    cursor: (hasVisitedReviewStation && !isConfigureEditMode) ? "not-allowed" : "pointer",
-                  }}
-                >
-                  + Add Skill
-                </button>
               </div>
 
               <div style={{ display: "flex", gap: "1rem", marginTop: "2rem" }}>

@@ -160,6 +160,9 @@ class TopicConfigRow(BaseModel):
     questionType: str
     difficulty: str = Field(default="Medium")
     numQuestions: int = Field(default=1, ge=1)
+    # Aptitude topic fields
+    isAptitude: Optional[bool] = False
+    subTopic: Optional[str] = None
 
 
 class GenerateQuestionsFromConfigRequest(BaseModel):
