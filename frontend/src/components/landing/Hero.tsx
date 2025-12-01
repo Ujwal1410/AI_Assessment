@@ -32,14 +32,15 @@ class SplineErrorBoundary extends Component<
   }
 }
 
-const Spline = dynamic(() => import('@splinetool/react-spline').then((mod) => mod.default), { 
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-mint-50/50 rounded-lg">
-      <div className="text-text-secondary">Loading 3D model...</div>
-    </div>
-  )
-})
+// Spline import - uncomment when ready to use
+// const Spline = dynamic(() => import('@splinetool/react-spline'), { 
+//   ssr: false,
+//   loading: () => (
+//     <div className="w-full h-full flex items-center justify-center bg-mint-50/50 rounded-lg">
+//       <div className="text-text-secondary">Loading 3D model...</div>
+//     </div>
+//   )
+// })
 
 const Hero3D = dynamic(() => import('./Hero3D'), { ssr: false })
 
