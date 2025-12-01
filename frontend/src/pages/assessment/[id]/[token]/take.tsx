@@ -9,6 +9,8 @@ import {
 } from "react";
 import { useRouter } from "next/router";
 import axios from "axios";
+import { useProctor, type ProctorViolation } from "@/hooks/useProctor";
+import { ProctorToast, FullscreenWarningBanner, ProctorDebugPanel } from "@/components/proctor";
 
 interface Question {
   questionText: string;
@@ -57,6 +59,59 @@ export default function CandidateAssessmentPage() {
   const [lastSavedAnswers, setLastSavedAnswers] = useState<Map<number, string>>(new Map());
   const [clipboardWarning, setClipboardWarning] = useState<string | null>(null);
   const clipboardWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [latestViolation, setLatestViolation] = useState<ProctorViolation | null>(null);
+  const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
+
+  // Check debug mode from URL params
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      setDebugMode(urlParams.get("proctorDebug") === "true");
+    }
+  }, []);
+
+  // Check if fullscreen was refused from instructions page
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const fullscreenAccepted = sessionStorage.getItem("fullscreenAccepted");
+      setShowFullscreenWarning(fullscreenAccepted === "false");
+    }
+  }, []);
+
+  // Enhanced proctoring with new hook
+  const {
+    isFullscreen,
+    fullscreenRefused,
+    violations,
+    violationCount,
+    recordViolation,
+    requestFullscreen,
+    exitFullscreen,
+    setFullscreenRefused,
+    simulateTabSwitch,
+    simulateFullscreenExit,
+  } = useProctor({
+    userId: candidateEmail || "",
+    assessmentId: (id as string) || "",
+    onViolation: (violation) => {
+      setTabSwitchCount((prev) => prev + 1);
+      setLatestViolation(violation);
+    },
+    enableFullscreenDetection: true,
+    enableDevToolsDetection: debugMode,
+    debugMode,
+  });
+
+  // Handle fullscreen request from warning banner
+  const handleEnterFullscreenFromBanner = async () => {
+    const success = await requestFullscreen();
+    if (success) {
+      setShowFullscreenWarning(false);
+      sessionStorage.setItem("fullscreenAccepted", "true");
+    }
+  };
 
   useEffect(() => {
     // Get candidate info from sessionStorage
@@ -1251,6 +1306,33 @@ export default function CandidateAssessmentPage() {
           </div>
         </div>
       </div>
+
+      {/* Proctoring Components */}
+      
+      {/* Fullscreen Warning Banner - shown if user refused fullscreen */}
+      <FullscreenWarningBanner
+        isVisible={showFullscreenWarning && !isFullscreen}
+        onEnterFullscreen={handleEnterFullscreenFromBanner}
+      />
+      
+      {/* Violation Toast Notification */}
+      <ProctorToast
+        violation={latestViolation}
+        duration={4000}
+        onDismiss={() => setLatestViolation(null)}
+      />
+      
+      {/* Debug Panel - only shown when proctorDebug=true in URL */}
+      <ProctorDebugPanel
+        isVisible={debugMode}
+        violations={violations}
+        isFullscreen={isFullscreen}
+        fullscreenRefused={fullscreenRefused || showFullscreenWarning}
+        onSimulateTabSwitch={simulateTabSwitch}
+        onSimulateFullscreenExit={simulateFullscreenExit}
+        onRequestFullscreen={requestFullscreen}
+        onExitFullscreen={exitFullscreen}
+      />
     </div>
   );
 }

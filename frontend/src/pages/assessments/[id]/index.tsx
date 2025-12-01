@@ -324,47 +324,65 @@ export default function AssessmentDetailPage() {
                             : "N/A"}
                         </td>
                         <td style={{ padding: "1rem" }}>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setSelectedCandidate({ email: result.email, name: result.name });
-                              setLoadingLogs(true);
-                              setLogsError(null);
-                              try {
-                                const candidateEmail = result.email;
-                                const candidateName = result.name;
-                                const candidateKey = `${candidateEmail.trim().toLowerCase()}_${candidateName.trim()}`;
-                                const logsResponse = await axios.get(
-                                  `/api/assessments/get-answer-logs?assessmentId=${id}&candidateEmail=${encodeURIComponent(candidateEmail)}&candidateName=${encodeURIComponent(candidateName)}`
-                                );
-                                if (logsResponse.data?.success) {
-                                  const logsData = logsResponse.data.data || [];
-                                  setAnswerLogs(logsData);
-                                } else {
-                                  setLogsError(logsResponse.data?.message || logsResponse.data?.detail || "Failed to load answer logs");
+                          <div style={{ display: "flex", gap: "0.5rem" }}>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setSelectedCandidate({ email: result.email, name: result.name });
+                                setLoadingLogs(true);
+                                setLogsError(null);
+                                try {
+                                  const candidateEmail = result.email;
+                                  const candidateName = result.name;
+                                  const candidateKey = `${candidateEmail.trim().toLowerCase()}_${candidateName.trim()}`;
+                                  const logsResponse = await axios.get(
+                                    `/api/assessments/get-answer-logs?assessmentId=${id}&candidateEmail=${encodeURIComponent(candidateEmail)}&candidateName=${encodeURIComponent(candidateName)}`
+                                  );
+                                  if (logsResponse.data?.success) {
+                                    const logsData = logsResponse.data.data || [];
+                                    setAnswerLogs(logsData);
+                                  } else {
+                                    setLogsError(logsResponse.data?.message || logsResponse.data?.detail || "Failed to load answer logs");
+                                  }
+                                } catch (err: any) {
+                                  console.error("Error fetching answer logs:", err);
+                                  const errorMsg = err.response?.data?.message || 
+                                                  err.response?.data?.detail || 
+                                                  err.response?.data?.error ||
+                                                  err.message || 
+                                                  "Failed to load answer logs";
+                                  setLogsError(errorMsg);
+                                  console.error("Full error response:", err.response?.data);
+                                } finally {
+                                  setLoadingLogs(false);
                                 }
-                              } catch (err: any) {
-                                console.error("Error fetching answer logs:", err);
-                                const errorMsg = err.response?.data?.message || 
-                                                err.response?.data?.detail || 
-                                                err.response?.data?.error ||
-                                                err.message || 
-                                                "Failed to load answer logs";
-                                setLogsError(errorMsg);
-                                console.error("Full error response:", err.response?.data);
-                              } finally {
-                                setLoadingLogs(false);
-                              }
-                            }}
-                            className="btn-secondary"
-                            style={{ 
-                              padding: "0.5rem 1rem", 
-                              fontSize: "0.875rem",
-                              whiteSpace: "nowrap"
-                            }}
-                          >
-                            View Logs
-                          </button>
+                              }}
+                              className="btn-secondary"
+                              style={{ 
+                                padding: "0.5rem 1rem", 
+                                fontSize: "0.875rem",
+                                whiteSpace: "nowrap"
+                              }}
+                            >
+                              View Logs
+                            </button>
+                            <Link href={`/admin/assessment/${id}/candidate/${encodeURIComponent(result.email)}`}>
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                style={{ 
+                                  padding: "0.5rem 1rem", 
+                                  fontSize: "0.875rem",
+                                  whiteSpace: "nowrap",
+                                  backgroundColor: "#fef2f2",
+                                  borderColor: "#fecaca",
+                                  color: "#dc2626"
+                                }}
+                              >
+                                Proctoring
+                              </button>
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     ))}

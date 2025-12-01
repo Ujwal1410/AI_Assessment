@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/router";
+import { FullscreenPrompt } from "@/components/proctor";
 
 export default function AssessmentInstructionsPage() {
   const router = useRouter();
@@ -8,6 +9,9 @@ export default function AssessmentInstructionsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState(false);
 
   useEffect(() => {
     const storedEmail = sessionStorage.getItem("candidateEmail");
@@ -24,9 +28,138 @@ export default function AssessmentInstructionsPage() {
     }
   }, [id, token, router]);
 
-  const handleStart = () => {
+  // Record proctoring event
+  const recordProctorEvent = useCallback(async (eventType: string, metadata?: Record<string, unknown>) => {
+    if (!id || !email) return;
+    
+    try {
+      const response = await fetch("/api/proctor/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventType,
+          timestamp: new Date().toISOString(),
+          assessmentId: id,
+          userId: email,
+          metadata,
+        }),
+      });
+      
+      if (!response.ok) {
+        console.error("[Proctor] Failed to record event:", response.statusText);
+      }
+    } catch (error) {
+      console.error("[Proctor] Error recording event:", error);
+    }
+  }, [id, email]);
+
+  // Start candidate session (record startedAt in backend)
+  const startSession = useCallback(async (): Promise<boolean> => {
+    if (!id || !token || !email || !name) return false;
+    
+    try {
+      const response = await fetch("/api/assessment/start-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assessmentId: id,
+          token,
+          email,
+          name,
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data?.startedAt) {
+          // Store startedAt in sessionStorage for client-side timer reference
+          sessionStorage.setItem("assessmentStartedAt", data.data.startedAt);
+          sessionStorage.setItem("serverTime", data.data.serverTime);
+          return true;
+        }
+      }
+      
+      console.error("[Session] Failed to start session");
+      return false;
+    } catch (error) {
+      console.error("[Session] Error starting session:", error);
+      return false;
+    }
+  }, [id, token, email, name]);
+
+  // Request fullscreen
+  const requestFullscreen = useCallback(async (): Promise<boolean> => {
+    try {
+      const elem = document.documentElement;
+      
+      if (elem.requestFullscreen) {
+        await elem.requestFullscreen();
+      } else if ((elem as any).webkitRequestFullscreen) {
+        await (elem as any).webkitRequestFullscreen();
+      } else if ((elem as any).mozRequestFullScreen) {
+        await (elem as any).mozRequestFullScreen();
+      } else if ((elem as any).msRequestFullscreen) {
+        await (elem as any).msRequestFullscreen();
+      }
+      
+      // Verify fullscreen was actually entered
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const isFullscreen = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      
+      return isFullscreen;
+    } catch (error) {
+      console.error("[Proctor] Failed to enter fullscreen:", error);
+      return false;
+    }
+  }, []);
+
+  // Handle "Start Assessment" click - show fullscreen prompt
+  const handleStartClick = () => {
     if (!acknowledged || !id || !token) return;
-    router.push(`/assessment/${id}/${token}/take`);
+    setFullscreenError(false);
+    setShowFullscreenPrompt(true);
+  };
+
+  // Handle "Enter Fullscreen" in the prompt
+  const handleEnterFullscreen = async () => {
+    setIsStarting(true);
+    setFullscreenError(false);
+    
+    const success = await requestFullscreen();
+    
+    if (success) {
+      // Record fullscreen enabled event
+      await recordProctorEvent("FULLSCREEN_ENABLED", { source: "mandatory_prompt" });
+      
+      // Start candidate session (record startedAt in backend)
+      const sessionStarted = await startSession();
+      
+      if (!sessionStarted) {
+        console.warn("[Session] Failed to record session start, but continuing...");
+      }
+      
+      // Store fullscreen state
+      sessionStorage.setItem("fullscreenAccepted", "true");
+      
+      // Close prompt and navigate
+      setShowFullscreenPrompt(false);
+      router.push(`/assessment/${id}/${token}/take`);
+    } else {
+      // Fullscreen failed
+      setFullscreenError(true);
+      setIsStarting(false);
+    }
+  };
+
+  // Handle fullscreen failure from prompt
+  const handleFullscreenFailed = () => {
+    setFullscreenError(true);
+    setIsStarting(false);
   };
 
   if (isCheckingSession) {
@@ -74,6 +207,38 @@ export default function AssessmentInstructionsPage() {
                 "Use the navigation controls to move between questions in the current section.",
               ]}
             />
+            {/* Proctoring Guidelines Card - Mandatory Fullscreen */}
+            <div
+              style={{
+                border: "2px solid #ef4444",
+                borderRadius: "0.75rem",
+                padding: "1.25rem",
+                backgroundColor: "#fef2f2",
+              }}
+            >
+              <h2 style={{ fontSize: "1.1rem", fontWeight: 600, color: "#991b1b", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                Proctoring Requirements (Mandatory)
+              </h2>
+              <ul style={{ margin: 0, paddingLeft: "1.25rem", color: "#991b1b", lineHeight: 1.6 }}>
+                <li style={{ marginBottom: "0.5rem" }}>
+                  <strong>Fullscreen Mode (Required):</strong> You must enter fullscreen mode to start the exam. The assessment will not begin without it.
+                </li>
+                <li style={{ marginBottom: "0.5rem" }}>
+                  <strong>Tab Switching:</strong> Switching to other browser tabs will be detected and recorded.
+                </li>
+                <li style={{ marginBottom: "0.5rem" }}>
+                  <strong>Window Focus:</strong> Clicking outside the browser window will be monitored.
+                </li>
+                <li style={{ marginBottom: "0.5rem" }}>
+                  <strong>Copy/Paste:</strong> Copy and paste actions are restricted and will be logged.
+                </li>
+              </ul>
+            </div>
             <InstructionCard
               title="Code of Conduct"
               bullets={[
@@ -93,7 +258,7 @@ export default function AssessmentInstructionsPage() {
                 style={{ width: "1.25rem", height: "1.25rem" }}
               />
               <span style={{ fontSize: "0.95rem", color: "#1f2937" }}>
-                I have read and understood the instructions, and I agree to follow the assessment rules.
+                I have read and understood the instructions, and I agree to follow the assessment rules including mandatory fullscreen mode.
               </span>
             </label>
           </div>
@@ -101,7 +266,7 @@ export default function AssessmentInstructionsPage() {
           <button
             type="button"
             className="btn-primary"
-            onClick={handleStart}
+            onClick={handleStartClick}
             disabled={!acknowledged}
             style={{
               width: "100%",
@@ -115,6 +280,15 @@ export default function AssessmentInstructionsPage() {
           </button>
         </div>
       </div>
+
+      {/* Mandatory Fullscreen Prompt Modal */}
+      <FullscreenPrompt
+        isOpen={showFullscreenPrompt}
+        onEnterFullscreen={handleEnterFullscreen}
+        onFullscreenFailed={handleFullscreenFailed}
+        candidateName={name || undefined}
+        isLoading={isStarting}
+      />
     </div>
   );
 }
@@ -142,4 +316,3 @@ function InstructionCard({ title, bullets }: { title: string; bullets: string[] 
     </div>
   );
 }
-

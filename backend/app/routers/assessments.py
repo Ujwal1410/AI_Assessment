@@ -1538,6 +1538,7 @@ async def get_candidate_results(
             "notAttempted": response.get("notAttempted", 0),
             "correctAnswers": response.get("correctAnswers", 0),
             "submittedAt": response.get("submittedAt"),
+            "startedAt": response.get("startedAt"),  # Candidate's actual start time
             # AI evaluation data
             "aiScore": response.get("aiScore", 0),
             "percentageScored": response.get("percentageScored", 0),
@@ -1579,6 +1580,7 @@ async def get_all_questions(
             "description": assessment.get("description"),
             "status": assessment.get("status"),
             "totalQuestions": len(questions_with_topics),
+            "schedule": assessment.get("schedule"),
         },
         "topics": [
             {

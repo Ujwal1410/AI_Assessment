@@ -234,6 +234,160 @@ async def get_assessment_schedule(
         ) from exc
 
 
+@router.post("/start-session")
+async def start_candidate_session(
+    payload: Dict[str, Any],
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Record when a candidate starts their assessment session.
+    This creates/updates a startedAt timestamp for the candidate.
+    """
+    assessment_id = payload.get("assessmentId")
+    token = payload.get("token")
+    email = payload.get("email", "").strip().lower()
+    name = payload.get("name", "").strip()
+
+    if not assessment_id or not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assessment ID and token are required")
+    
+    if not email or not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email and name are required")
+
+    try:
+        oid = to_object_id(assessment_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assessment ID")
+
+    try:
+        assessment = await db.assessments.find_one({"_id": oid})
+        if not assessment:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+
+        # Verify token
+        if assessment.get("assessmentToken") != token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid assessment token")
+
+        # Check time window
+        try:
+            _check_assessment_time_window(assessment, allow_before_start=False)
+        except HTTPException:
+            raise
+        except Exception as time_exc:
+            logger.warning(f"Time window check error for start-session: {time_exc}")
+
+        # Create candidate key
+        candidate_key = f"{email}_{name}"
+        
+        # Get current server time (UTC)
+        server_now = datetime.now(timezone.utc)
+        started_at = server_now.isoformat()
+        
+        # Get or create candidate responses
+        candidate_responses = assessment.get("candidateResponses", {})
+        if not isinstance(candidate_responses, dict):
+            candidate_responses = {}
+        
+        # Only set startedAt if not already set (don't overwrite)
+        if candidate_key not in candidate_responses:
+            candidate_responses[candidate_key] = {
+                "email": email,
+                "name": name,
+                "startedAt": started_at,
+            }
+        elif not candidate_responses[candidate_key].get("startedAt"):
+            candidate_responses[candidate_key]["startedAt"] = started_at
+        else:
+            # Already started, return existing startedAt
+            started_at = candidate_responses[candidate_key]["startedAt"]
+            logger.info(f"Candidate {email} already started at {started_at}")
+            return success_response(
+                "Session already started",
+                {
+                    "startedAt": started_at,
+                    "serverTime": server_now.isoformat(),
+                }
+            )
+        
+        # Update assessment document
+        await db.assessments.update_one(
+            {"_id": oid},
+            {"$set": {"candidateResponses": candidate_responses}}
+        )
+        
+        logger.info(f"Candidate {email} started assessment {assessment_id} at {started_at}")
+        
+        return success_response(
+            "Session started successfully",
+            {
+                "startedAt": started_at,
+                "serverTime": server_now.isoformat(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Error starting candidate session: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start session: {str(exc)}"
+        ) from exc
+
+
+@router.get("/get-session")
+async def get_candidate_session(
+    assessmentId: str = Query(...),
+    token: str = Query(...),
+    email: str = Query(...),
+    name: str = Query(...),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Get candidate's session data including startedAt timestamp.
+    """
+    email = email.strip().lower()
+    name = name.strip()
+
+    try:
+        oid = to_object_id(assessmentId)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assessment ID")
+
+    try:
+        assessment = await db.assessments.find_one({"_id": oid})
+        if not assessment:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment not found")
+
+        # Verify token
+        if assessment.get("assessmentToken") != token:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid assessment token")
+
+        # Get candidate data
+        candidate_key = f"{email}_{name}"
+        candidate_responses = assessment.get("candidateResponses", {})
+        candidate_data = candidate_responses.get(candidate_key, {})
+        
+        # Get server time for client sync
+        server_now = datetime.now(timezone.utc)
+        
+        return success_response(
+            "Session data fetched successfully",
+            {
+                "startedAt": candidate_data.get("startedAt"),
+                "submittedAt": candidate_data.get("submittedAt"),
+                "serverTime": server_now.isoformat(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Error fetching candidate session: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch session: {str(exc)}"
+        ) from exc
+
+
 @router.get("/get-questions")
 async def get_assessment_questions(
     assessmentId: str = Query(...),

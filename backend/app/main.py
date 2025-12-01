@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from .core.config import get_settings
 from .db.mongo import close_mongo_connection, connect_to_mongo, get_database
-from .routers import assessments, auth, candidate, users
+from .routers import assessments, auth, candidate, proctor, users
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
@@ -183,6 +183,13 @@ async def startup() -> None:
     await db.assessments.create_index([("createdBy", 1), ("status", 1)])  # Query by creator and status
     await db.assessments.create_index([("organization", 1), ("createdBy", 1)])  # Query by org and creator
     
+    # Proctor events collection indexes
+    await db.proctor_events.create_index("userId")  # Query by user
+    await db.proctor_events.create_index("assessmentId")  # Query by assessment
+    await db.proctor_events.create_index("eventType")  # Query by event type
+    await db.proctor_events.create_index([("assessmentId", 1), ("userId", 1)])  # Compound for user in assessment
+    await db.proctor_events.create_index([("assessmentId", 1), ("userId", 1), ("eventType", 1)])  # Full compound
+    
     logger.info("MongoDB connected and indexes ensured")
 
 
@@ -290,4 +297,5 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(assessments.router)
 app.include_router(candidate.router)
+app.include_router(proctor.router)
 
