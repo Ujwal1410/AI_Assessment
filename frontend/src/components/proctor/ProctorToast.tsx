@@ -142,38 +142,54 @@ export function ProctorToast({ violation, duration = 3000, onDismiss }: ProctorT
   const [isVisible, setIsVisible] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
   const [currentViolation, setCurrentViolation] = useState<ProctorViolation | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [violationKey, setViolationKey] = useState<string>("");
+  const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (violation) {
-      // Clear any existing timer
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
+      // Create unique key from timestamp to detect new violations
+      const newKey = `${violation.eventType}-${violation.timestamp}`;
+      
+      // Clear any existing timers
+      if (dismissTimerRef.current) {
+        clearTimeout(dismissTimerRef.current);
+        dismissTimerRef.current = null;
+      }
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
       }
       
       setCurrentViolation(violation);
+      setViolationKey(newKey);
       setIsExiting(false);
       setIsVisible(true);
 
-      // Start exit animation before hiding
-      timerRef.current = setTimeout(() => {
+      // Start dismiss timer
+      dismissTimerRef.current = setTimeout(() => {
         setIsExiting(true);
         
-        // Actually hide after animation completes
-        setTimeout(() => {
+        // Actually hide after exit animation completes
+        exitTimerRef.current = setTimeout(() => {
           setIsVisible(false);
           setIsExiting(false);
+          setCurrentViolation(null);
           onDismiss?.();
         }, 300);
       }, duration);
-
-      return () => {
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-      };
     }
-  }, [violation, duration, onDismiss]);
+    
+    // Cleanup on unmount
+    return () => {
+      if (dismissTimerRef.current) {
+        clearTimeout(dismissTimerRef.current);
+      }
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+      }
+    };
+  }, [violation?.timestamp, violation?.eventType, duration, onDismiss]);
 
   if (!isVisible || !currentViolation) return null;
 
@@ -186,6 +202,7 @@ export function ProctorToast({ violation, duration = 3000, onDismiss }: ProctorT
 
   return (
     <div
+      key={violationKey}
       style={{
         position: "fixed",
         top: "1rem",
@@ -193,7 +210,7 @@ export function ProctorToast({ violation, duration = 3000, onDismiss }: ProctorT
         zIndex: 10001,
         maxWidth: "320px",
         width: "100%",
-        animation: isExiting ? "slideOut 0.3s ease-in forwards" : "slideIn 0.3s ease-out",
+        animation: isExiting ? "toastSlideOut 0.3s ease-in forwards" : "toastSlideIn 0.3s ease-out",
         pointerEvents: "auto",
       }}
     >
@@ -276,7 +293,7 @@ export function ProctorToast({ violation, duration = 3000, onDismiss }: ProctorT
 
       {/* CSS for animations */}
       <style jsx>{`
-        @keyframes slideIn {
+        @keyframes toastSlideIn {
           from {
             opacity: 0;
             transform: translateX(100%) scale(0.95);
@@ -286,7 +303,7 @@ export function ProctorToast({ violation, duration = 3000, onDismiss }: ProctorT
             transform: translateX(0) scale(1);
           }
         }
-        @keyframes slideOut {
+        @keyframes toastSlideOut {
           from {
             opacity: 1;
             transform: translateX(0) scale(1);
