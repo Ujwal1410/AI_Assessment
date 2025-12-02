@@ -171,10 +171,11 @@ export function CameraProctorModal({
         bottom: 0,
         backgroundColor: "rgba(0, 0, 0, 0.85)",
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "center",
         zIndex: 10000,
         padding: "1rem",
+        overflowY: "auto",
       }}
       role="dialog"
       aria-modal="true"
@@ -188,8 +189,7 @@ export function CameraProctorModal({
           borderRadius: "1rem",
           maxWidth: "580px",
           width: "100%",
-          maxHeight: "90vh",
-          overflowY: "auto",
+          margin: "2rem 0",
           padding: "2rem",
           boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
           animation: "cameraModalFadeIn 0.2s ease-out",
