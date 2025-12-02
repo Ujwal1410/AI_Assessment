@@ -741,7 +741,11 @@ export function usePrecheck({
         message: passed 
           ? `Network OK: ${latencyMs}ms latency, ${downloadSpeedMbps.toFixed(1)} Mbps`
           : `Network issues: ${issues.join(", ")}`,
-        details: metrics,
+        details: {
+          latencyMs: metrics.latencyMs,
+          downloadSpeedMbps: metrics.downloadSpeedMbps,
+          uploadSpeedMbps: metrics.uploadSpeedMbps,
+        },
         troubleshooting: passed ? undefined : getTroubleshooting("network"),
         lastChecked: new Date(),
       };
@@ -848,7 +852,13 @@ export function usePrecheck({
       message: info.isSupported 
         ? `${info.name} ${info.version} is supported`
         : `${info.name} ${info.version} may have compatibility issues`,
-      details: info,
+      details: {
+        name: info.name,
+        version: info.version,
+        isSupported: info.isSupported,
+        isSecureContext: info.isSecureContext,
+        warnings: info.warnings,
+      },
       troubleshooting: info.isSupported ? undefined : getTroubleshooting("browser"),
       lastChecked: new Date(),
     };
