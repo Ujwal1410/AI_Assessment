@@ -20,6 +20,7 @@ export default withAuth(
           "/auth/super-admin-signup",
           "/api/auth",
           "/api/assessment",
+          "/api/proctor",  // Proctoring API routes (validated server-side)
         ];
         
         // Check if route is public
@@ -47,6 +48,11 @@ export default withAuth(
           return true;
         }
         
+        // Proctoring API routes - public (candidates aren't logged in via NextAuth)
+        if (pathname.startsWith("/api/proctor/")) {
+          return true;
+        }
+        
         // All other routes require authentication
         return !!token;
       },
@@ -63,12 +69,14 @@ export const config = {
     /*
      * Match all request paths except:
      * - api/auth (NextAuth routes)
+     * - api/assessment (Candidate assessment API)
+     * - api/proctor (Proctoring API - candidates aren't logged in)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public files (public folder)
      */
-    "/((?!api/auth|api/assessment|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api/auth|api/assessment|api/proctor|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
 

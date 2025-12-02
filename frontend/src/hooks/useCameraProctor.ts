@@ -381,12 +381,16 @@ export function useCameraProctor({
     metadata?: Record<string, unknown>,
     captureImage: boolean = true
   ) => {
+    // Always log to console for debugging
+    console.log(`[CameraProctor] Attempting to record: ${eventType}`, { userId, assessmentId });
+    
     if (!userId || !assessmentId) {
-      debugLog("Skipped recording - missing userId or assessmentId");
+      console.warn("[CameraProctor] Skipped recording - missing userId or assessmentId", { userId, assessmentId });
       return;
     }
     
     if (!shouldRecordEvent(eventType)) {
+      console.log(`[CameraProctor] Event ${eventType} throttled`);
       return;
     }
     
@@ -403,8 +407,13 @@ export function useCameraProctor({
     
     setLastViolation(violation);
     
-    debugLog(`Event recorded: ${eventType}`, metadata);
-    console.log(`[CameraProctor] ${eventType} violation recorded:`, { eventType, userId, assessmentId });
+    console.log(`[CameraProctor] Recording ${eventType} violation:`, { 
+      eventType, 
+      userId, 
+      assessmentId,
+      hasSnapshot: !!snapshotBase64,
+      metadata 
+    });
     
     if (onViolation) {
       onViolation(violation);
@@ -412,6 +421,7 @@ export function useCameraProctor({
     
     // Send to backend
     try {
+      console.log("[CameraProctor] Sending to /api/proctor/record...");
       const response = await fetch("/api/proctor/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -419,14 +429,16 @@ export function useCameraProctor({
       });
       
       if (!response.ok) {
-        console.error("[CameraProctor] Failed to record violation:", response.statusText);
+        const errorText = await response.text();
+        console.error("[CameraProctor] Failed to record violation:", response.status, response.statusText, errorText);
       } else {
-        debugLog("Event sent to server successfully");
+        const result = await response.json();
+        console.log("[CameraProctor] Event sent successfully:", result);
       }
     } catch (error) {
-      console.error("[CameraProctor] Error sending violation:", error);
+      console.error("[CameraProctor] Error sending violation to server:", error);
     }
-  }, [userId, assessmentId, onViolation, shouldRecordEvent, captureSnapshot, debugLog]);
+  }, [userId, assessmentId, onViolation, shouldRecordEvent, captureSnapshot]);
   
   // ============================================================================
   // Load Models (BlazeFace + FaceMesh via TensorFlow.js)
@@ -811,29 +823,34 @@ export function useCameraProctor({
   }, [debugLog]);
   
   const startCamera = useCallback(async (): Promise<boolean> => {
+    console.log("[CameraProctor] startCamera called", { enabled, userId, assessmentId });
+    
     if (!enabled) {
-      debugLog("Camera proctoring is disabled");
+      console.log("[CameraProctor] Camera proctoring is disabled");
       return false;
     }
     
     try {
-      debugLog("Starting camera...");
+      console.log("[CameraProctor] Loading TensorFlow.js models...");
       
       // Load models first
       const modelsLoaded = await loadModels();
       if (!modelsLoaded) {
+        console.error("[CameraProctor] Failed to load detection models");
         setErrors(prev => [...prev, "Failed to load detection models"]);
         return false;
       }
+      console.log("[CameraProctor] Models loaded successfully");
       
       // Load reference face for comparison
       const refLoaded = await loadReferenceFace();
       if (refLoaded) {
-        debugLog("Reference face loaded for comparison");
+        console.log("[CameraProctor] Reference face loaded for comparison");
       } else {
-        debugLog("Reference face not available - face comparison disabled");
+        console.log("[CameraProctor] Reference face not available - face comparison disabled");
       }
       
+      console.log("[CameraProctor] Requesting camera access...");
       // Get camera stream
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -842,12 +859,14 @@ export function useCameraProctor({
           facingMode: "user",
         },
       });
+      console.log("[CameraProctor] Camera stream obtained");
       
       streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        console.log("[CameraProctor] Video element playing");
       }
       
       setIsCameraOn(true);
@@ -856,7 +875,7 @@ export function useCameraProctor({
       // Start detection loop
       detectionIntervalRef.current = setInterval(runDetection, detectionIntervalMs);
       
-      debugLog("Camera started successfully");
+      console.log("[CameraProctor] Camera started successfully, detection loop running");
       return true;
     } catch (error) {
       console.error("[CameraProctor] Failed to start camera:", error);
@@ -869,7 +888,7 @@ export function useCameraProctor({
       setErrors(prev => [...prev, `Camera error: ${(error as Error).message}`]);
       return false;
     }
-  }, [enabled, loadModels, loadReferenceFace, runDetection, detectionIntervalMs, recordViolation, debugLog]);
+  }, [enabled, userId, assessmentId, loadModels, loadReferenceFace, runDetection, detectionIntervalMs, recordViolation]);
   
   const stopCamera = useCallback(() => {
     debugLog("Stopping camera...");
