@@ -16,6 +16,9 @@ const VALID_EVENT_TYPES = new Set([
   "GAZE_AWAY",
   "MULTI_FACE",
   "SPOOF_DETECTED",
+  "FACE_MISMATCH",
+  "CAMERA_DENIED",
+  "CAMERA_ERROR",
 ]);
 
 interface ViolationPayload {

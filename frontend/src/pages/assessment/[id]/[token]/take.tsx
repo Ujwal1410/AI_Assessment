@@ -11,7 +11,7 @@ import { useRouter } from "next/router";
 import axios from "axios";
 import { useProctor, type ProctorViolation } from "@/hooks/useProctor";
 import { useCameraProctor, type CameraProctorViolation } from "@/hooks/useCameraProctor";
-import { ProctorToast, FullscreenWarningBanner, ProctorDebugPanel, ProctorStatusWidget } from "@/components/proctor";
+import { ProctorToast, FullscreenWarningBanner, ProctorDebugPanel } from "@/components/proctor";
 
 interface Question {
   questionText: string;
@@ -1370,22 +1370,6 @@ export default function CandidateAssessmentPage() {
         duration={4000}
         onDismiss={() => setLatestViolation(null)}
       />
-      
-      {/* Camera Proctor Status Widget */}
-      {cameraProctorEnabled && (
-        <ProctorStatusWidget
-          isCameraOn={isCameraOn}
-          isModelLoaded={isModelLoaded}
-          facesCount={facesCount}
-          gazeDirection={gazeDirection}
-          lastViolation={lastCameraViolation}
-          errors={cameraErrors}
-          debugMode={debugMode}
-          debugInfo={debugInfo}
-          videoRef={videoRef}
-          canvasRef={canvasRef}
-        />
-      )}
       
       {/* Hidden video and canvas elements for camera proctoring */}
       {cameraProctorEnabled && (

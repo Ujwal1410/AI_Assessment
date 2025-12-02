@@ -24,6 +24,7 @@ const EVENT_MESSAGES: Record<string, { title: string; message: string }> = {
   MULTI_FACE: { title: "Multiple Faces", message: "Multiple faces detected" },
   SPOOF_DETECTED: { title: "Spoof Alert", message: "Possible spoof detected" },
   NO_FACE: { title: "No Face", message: "No face detected in frame" },
+  FACE_MISMATCH: { title: "Face Mismatch", message: "Face doesn't match verified identity" },
 };
 
 // Colors for different event severity
@@ -36,6 +37,10 @@ const getEventSeverity = (eventType: string): "warning" | "error" | "info" => {
     case "GAZE_AWAY":
     case "NO_FACE":
       return "warning";
+    case "FACE_MISMATCH":
+    case "SPOOF_DETECTED":
+    case "MULTI_FACE":
+      return "error";
     default:
       return "error";
   }
@@ -75,6 +80,23 @@ const getEventIcon = (eventType: string) => {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
           <line x1="3" y1="9" x2="21" y2="9" />
+        </svg>
+      );
+    case "FACE_MISMATCH":
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+          <line x1="18" y1="8" x2="23" y2="13" />
+          <line x1="23" y1="8" x2="18" y2="13" />
+        </svg>
+      );
+    case "SPOOF_DETECTED":
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
         </svg>
       );
     default:

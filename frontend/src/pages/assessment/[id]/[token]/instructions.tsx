@@ -164,8 +164,8 @@ export default function AssessmentInstructionsPage() {
     }
   };
 
-  // Handle camera consent accepted
-  const handleCameraAccept = async (): Promise<boolean> => {
+  // Handle camera consent accepted with reference photo
+  const handleCameraAccept = async (referencePhoto: string): Promise<boolean> => {
     setIsStarting(true);
     setCameraError(null);
     
@@ -179,8 +179,9 @@ export default function AssessmentInstructionsPage() {
         console.warn("[Session] Failed to record session start, but continuing...");
       }
       
-      // Store camera consent in session
+      // Store camera consent and reference photo in session
       sessionStorage.setItem("cameraProctorEnabled", "true");
+      sessionStorage.setItem("candidateReferencePhoto", referencePhoto);
       
       // Navigate to assessment
       setShowCameraPrompt(false);
