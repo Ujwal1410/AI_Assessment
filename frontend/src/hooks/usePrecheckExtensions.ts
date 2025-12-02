@@ -174,45 +174,105 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
     return detected;
   }, []);
 
-  // Detect ad blockers
+  // Detect ad blockers (multiple methods for better detection)
   const detectAdBlocker = useCallback(async (): Promise<DetectedExtension | null> => {
-    if (typeof document === "undefined") return null;
+    if (typeof document === "undefined" || typeof window === "undefined") return null;
     
+    // Method 1: Check for common ad blocker global variables
+    const adBlockerGlobals = [
+      "AdBlock",
+      "adblock", 
+      "__adblockplus__",
+      "AdBlockPlus",
+      "uBlock",
+      "uBlockOrigin",
+      "__ublock__",
+    ];
+    
+    for (const global of adBlockerGlobals) {
+      if ((window as any)[global]) {
+        return {
+          id: "adblocker_global",
+          category: "ad_blocker",
+          signature: `window.${global}`,
+          confidence: "medium",
+          description: "Ad Blocker Extension",
+        };
+      }
+    }
+    
+    // Method 2: Bait element approach (more reliable with visible element)
     return new Promise((resolve) => {
-      // Create a bait element that ad blockers typically hide
-      const bait = document.createElement("div");
-      bait.className = "adsbox ad-banner ad-placeholder pub_300x250";
-      bait.innerHTML = "&nbsp;";
-      bait.style.cssText = "position:absolute;top:-9999px;left:-9999px;width:1px;height:1px;";
+      // Create multiple bait elements with different signatures
+      const baits: HTMLElement[] = [];
       
-      document.body.appendChild(bait);
+      // Bait 1: Classic ad div
+      const bait1 = document.createElement("div");
+      bait1.className = "adsbox ad-banner ad-placeholder pub_300x250 textAd banner-ad";
+      bait1.setAttribute("id", "ad-container-test");
+      bait1.innerHTML = "&nbsp;";
+      bait1.style.cssText = "position:fixed;top:-1000px;left:-1000px;width:300px;height:250px;background:#fff;";
+      baits.push(bait1);
       
-      // Give ad blockers time to process
+      // Bait 2: Google ad style
+      const bait2 = document.createElement("ins");
+      bait2.className = "adsbygoogle adsense ad-unit";
+      bait2.style.cssText = "position:fixed;top:-1000px;left:-1000px;width:300px;height:250px;display:block;";
+      baits.push(bait2);
+      
+      // Bait 3: Banner style
+      const bait3 = document.createElement("div");
+      bait3.className = "ad_banner ad-leaderboard sponsor-ad";
+      bait3.setAttribute("data-ad-slot", "test");
+      bait3.innerHTML = "<span>Advertisement</span>";
+      bait3.style.cssText = "position:fixed;top:-1000px;left:-1000px;width:728px;height:90px;";
+      baits.push(bait3);
+      
+      // Add all baits to body
+      baits.forEach(b => document.body.appendChild(b));
+      
+      // Check after a delay (ad blockers need time to process)
       setTimeout(() => {
-        const isBlocked = 
-          bait.offsetParent === null ||
-          bait.offsetHeight === 0 ||
-          bait.offsetWidth === 0 ||
-          window.getComputedStyle(bait).display === "none" ||
-          window.getComputedStyle(bait).visibility === "hidden";
+        let isBlocked = false;
+        
+        for (const bait of baits) {
+          const styles = window.getComputedStyle(bait);
+          const rect = bait.getBoundingClientRect();
+          
+          if (
+            styles.display === "none" ||
+            styles.visibility === "hidden" ||
+            styles.opacity === "0" ||
+            bait.offsetHeight === 0 ||
+            bait.offsetWidth === 0 ||
+            rect.height === 0 ||
+            rect.width === 0 ||
+            bait.offsetParent === null
+          ) {
+            isBlocked = true;
+            break;
+          }
+        }
         
         // Clean up
-        if (bait.parentNode) {
-          bait.parentNode.removeChild(bait);
-        }
+        baits.forEach(bait => {
+          if (bait.parentNode) {
+            bait.parentNode.removeChild(bait);
+          }
+        });
         
         if (isBlocked) {
           resolve({
             id: "adblocker_detected",
             category: "ad_blocker",
-            signature: "Ad element hidden",
+            signature: "Ad element blocked/hidden",
             confidence: "medium",
             description: "Ad Blocker Extension",
           });
         } else {
           resolve(null);
         }
-      }, 100);
+      }, 200); // Increased timeout for ad blocker to process
     });
   }, []);
 

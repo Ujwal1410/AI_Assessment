@@ -542,8 +542,8 @@ export default function PrecheckPage() {
                   </div>
                 )}
                 
-                {/* Extension Warning Card */}
-                {type === "browser" && isCurrentStep && extensionScanResult && extensionScanResult.extensions.length > 0 && (
+                {/* Extension Warning Card - show for browser check when extensions detected (even after passing) */}
+                {type === "browser" && extensionScanResult && extensionScanResult.extensions.length > 0 && (
                   <ExtensionWarningCard
                     scanResult={extensionScanResult}
                     isScanning={isExtensionScanning}
