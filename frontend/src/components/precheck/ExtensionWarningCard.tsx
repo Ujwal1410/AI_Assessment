@@ -13,6 +13,7 @@ interface ExtensionWarningCardProps {
 const CATEGORY_INFO: Record<ExtensionCategory, { label: string; icon: string; color: string }> = {
   screen_recorder: { label: "Screen Recorder", icon: "🎥", color: "#ef4444" },
   automation: { label: "Automation Tool", icon: "🤖", color: "#ef4444" },
+  remote_desktop: { label: "Remote Desktop", icon: "🖥️", color: "#ef4444" },
   clipboard_manager: { label: "Clipboard Manager", icon: "📋", color: "#f59e0b" },
   devtools: { label: "Developer Tools", icon: "🔧", color: "#6b7280" },
   ad_blocker: { label: "Ad Blocker", icon: "🛡️", color: "#f59e0b" },
@@ -31,6 +32,42 @@ const DISABLE_INSTRUCTIONS = {
     "Find the extension and toggle it OFF or click Remove",
     "Refresh this page and click Re-scan",
   ],
+};
+
+// Instructions for closing remote desktop apps
+const REMOTE_DESKTOP_INSTRUCTIONS = {
+  anydesk: {
+    name: "AnyDesk",
+    steps: [
+      "Look for AnyDesk icon in system tray (bottom-right corner)",
+      "Right-click the icon and select 'Quit' or 'Exit'",
+      "Or press Ctrl+Shift+Esc → Find AnyDesk → End Task",
+    ],
+  },
+  teamviewer: {
+    name: "TeamViewer", 
+    steps: [
+      "Look for TeamViewer icon in system tray",
+      "Right-click and select 'Exit TeamViewer'",
+      "Or press Ctrl+Shift+Esc → Find TeamViewer → End Task",
+    ],
+  },
+  chrome_remote: {
+    name: "Chrome Remote Desktop",
+    steps: [
+      "Go to chrome://apps and disable Chrome Remote Desktop",
+      "Or uninstall from chrome://extensions",
+    ],
+  },
+  general: {
+    name: "Remote Desktop Apps",
+    steps: [
+      "Press Ctrl+Shift+Esc to open Task Manager",
+      "Look for: AnyDesk, TeamViewer, Parsec, RustDesk, or similar",
+      "Select the app and click 'End Task'",
+      "Click Re-scan to verify it's closed",
+    ],
+  },
 };
 
 export function ExtensionWarningCard({
@@ -173,8 +210,75 @@ export function ExtensionWarningCard({
         })}
       </div>
 
-      {/* Instructions */}
-      {hasHighRisk && (
+      {/* Remote Desktop Instructions */}
+      {Object.keys(grouped).includes("remote_desktop") && (
+        <div
+          style={{
+            backgroundColor: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: "0.375rem",
+            padding: "0.75rem",
+            marginBottom: "0.75rem",
+          }}
+        >
+          <p
+            style={{
+              margin: "0 0 0.5rem",
+              fontSize: "0.8125rem",
+              fontWeight: 600,
+              color: "#991b1b",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.375rem",
+            }}
+          >
+            ⚠️ Remote Desktop App Detected - Please Close It
+          </p>
+          <p
+            style={{
+              margin: "0 0 0.5rem",
+              fontSize: "0.75rem",
+              color: "#dc2626",
+            }}
+          >
+            Remote desktop applications like AnyDesk or TeamViewer allow others to view your screen, which is not permitted during the exam.
+          </p>
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "0.25rem",
+              padding: "0.5rem",
+            }}
+          >
+            <p
+              style={{
+                margin: "0 0 0.375rem",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                color: "#334155",
+              }}
+            >
+              How to close remote desktop apps:
+            </p>
+            <ol
+              style={{
+                margin: 0,
+                paddingLeft: "1.25rem",
+                fontSize: "0.6875rem",
+                color: "#64748b",
+                lineHeight: 1.6,
+              }}
+            >
+              {REMOTE_DESKTOP_INSTRUCTIONS.general.steps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      )}
+
+      {/* Extension Instructions */}
+      {hasHighRisk && !Object.keys(grouped).includes("remote_desktop") && (
         <div
           style={{
             backgroundColor: "#f8fafc",

@@ -10,6 +10,7 @@ export type ExtensionCategory =
   | "clipboard_manager"
   | "devtools"
   | "ad_blocker"
+  | "remote_desktop"
   | "unknown";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
@@ -55,6 +56,16 @@ const GLOBAL_VAR_SIGNATURES: GlobalVarSignature[] = [
   { name: "__screenCaptureEnabled__", category: "screen_recorder", confidence: "high", description: "Screen Capture API" },
   { name: "screencastify", category: "screen_recorder", confidence: "high", description: "Screencastify" },
   { name: "__loom__", category: "screen_recorder", confidence: "high", description: "Loom Screen Recorder" },
+  
+  // Remote Desktop / Screen Sharing (HIGH RISK)
+  { name: "AnyDesk", category: "remote_desktop", confidence: "high", description: "AnyDesk Remote Desktop" },
+  { name: "__anydesk__", category: "remote_desktop", confidence: "high", description: "AnyDesk Remote Desktop" },
+  { name: "TeamViewer", category: "remote_desktop", confidence: "high", description: "TeamViewer" },
+  { name: "__teamviewer__", category: "remote_desktop", confidence: "high", description: "TeamViewer" },
+  { name: "RemoteDesktop", category: "remote_desktop", confidence: "high", description: "Remote Desktop App" },
+  { name: "__chrome_remote_desktop__", category: "remote_desktop", confidence: "high", description: "Chrome Remote Desktop" },
+  { name: "parsec", category: "remote_desktop", confidence: "high", description: "Parsec Remote Desktop" },
+  { name: "rustdesk", category: "remote_desktop", confidence: "high", description: "RustDesk Remote Desktop" },
   
   // Clipboard managers
   { name: "_clipboardJS", category: "clipboard_manager", confidence: "medium", description: "Clipboard.js Extension" },
@@ -174,6 +185,103 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
     return detected;
   }, []);
 
+  // Detect remote desktop / screen sharing activity
+  const detectRemoteDesktop = useCallback(async (): Promise<DetectedExtension[]> => {
+    const detected: DetectedExtension[] = [];
+    
+    if (typeof window === "undefined" || typeof navigator === "undefined") return detected;
+    
+    try {
+      // Method 1: Check for active screen capture tracks
+      // This can detect if screen is being shared via WebRTC
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
+        // Check if getDisplayMedia has been used (screen sharing active)
+        // We can't directly check this, but we can look for signs
+      }
+      
+      // Method 2: Check for multiple monitors (potential for hidden monitor with remote viewer)
+      // Note: isExtended is part of the Multi-Screen Window Placement API (not widely supported)
+      if (typeof window.screen !== "undefined" && (window.screen as any).isExtended === true) {
+        detected.push({
+          id: "extended_display",
+          category: "remote_desktop",
+          signature: "screen.isExtended",
+          confidence: "low",
+          description: "Extended Display Detected (multiple monitors)",
+        });
+      }
+      
+      // Method 3: Check for known remote desktop browser extensions
+      const remoteDesktopSelectors = [
+        "[data-anydesk]",
+        "[data-teamviewer]", 
+        "#anydesk-overlay",
+        "#teamviewer-overlay",
+        ".chrome-remote-desktop",
+        "[data-chrome-remote-desktop]",
+        "#crd-overlay",
+        ".parsec-overlay",
+      ];
+      
+      for (const selector of remoteDesktopSelectors) {
+        try {
+          if (document.querySelector(selector)) {
+            detected.push({
+              id: `remote_dom_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`,
+              category: "remote_desktop",
+              signature: selector,
+              confidence: "high",
+              description: "Remote Desktop Overlay Detected",
+            });
+            break; // One detection is enough
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+      
+      // Method 4: Check for WebRTC peer connections that might indicate screen sharing
+      // Note: This is a heuristic - legitimate video calls also use WebRTC
+      if (typeof (window as any).RTCPeerConnection !== "undefined") {
+        // Check if there are any active peer connections
+        // This is limited because we can't enumerate all connections
+        const originalRTCPeerConnection = (window as any).__originalRTCPeerConnection__;
+        if (originalRTCPeerConnection) {
+          detected.push({
+            id: "rtc_hooked",
+            category: "remote_desktop",
+            signature: "RTCPeerConnection hooked",
+            confidence: "medium",
+            description: "WebRTC Connection Monitoring Detected",
+          });
+        }
+      }
+      
+      // Method 5: Check window dimensions vs screen dimensions
+      // Remote desktop viewers sometimes have different dimensions
+      const screenWidth = window.screen.width;
+      const screenHeight = window.screen.height;
+      const outerWidth = window.outerWidth;
+      const outerHeight = window.outerHeight;
+      
+      // If browser window is larger than screen, something is off
+      if (outerWidth > screenWidth + 50 || outerHeight > screenHeight + 50) {
+        detected.push({
+          id: "dimension_mismatch",
+          category: "remote_desktop",
+          signature: "Window > Screen dimensions",
+          confidence: "medium",
+          description: "Unusual Window Dimensions (possible remote viewing)",
+        });
+      }
+      
+    } catch (err) {
+      console.error("[ExtensionDetection] Remote desktop detection error:", err);
+    }
+    
+    return detected;
+  }, []);
+
   // Detect ad blockers (multiple methods for better detection)
   const detectAdBlocker = useCallback(async (): Promise<DetectedExtension | null> => {
     if (typeof document === "undefined" || typeof window === "undefined") return null;
@@ -286,10 +394,11 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
     
     try {
       // Run all detections in parallel
-      const [globalVars, domSignatures, adBlocker] = await Promise.all([
+      const [globalVars, domSignatures, adBlocker, remoteDesktop] = await Promise.all([
         Promise.resolve(detectGlobalVars()),
         Promise.resolve(detectDomSignatures()),
         detectAdBlocker(),
+        detectRemoteDesktop(),
       ]);
       
       // Check if this scan is still current
@@ -298,7 +407,7 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
       }
       
       // Combine results and deduplicate
-      const allExtensions = [...globalVars, ...domSignatures];
+      const allExtensions = [...globalVars, ...domSignatures, ...remoteDesktop];
       if (adBlocker) {
         allExtensions.push(adBlocker);
       }
@@ -314,7 +423,7 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
         extensions: uniqueExtensions,
         hasHighRisk: uniqueExtensions.some(
           (e) => e.confidence === "high" && 
-          (e.category === "screen_recorder" || e.category === "automation")
+          (e.category === "screen_recorder" || e.category === "automation" || e.category === "remote_desktop")
         ),
         hasMediumRisk: uniqueExtensions.some(
           (e) => e.confidence === "medium" || e.confidence === "high"
