@@ -164,26 +164,62 @@ export default function AssessmentInstructionsPage() {
     }
   };
 
+  // Background upload reference photo (fire-and-forget with retry)
+  const uploadReferencePhotoBackground = useCallback((photo: string) => {
+    // Fire-and-forget upload with retry
+    const upload = async (retryCount = 0) => {
+      try {
+        const response = await fetch("/api/proctor/record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventType: "REFERENCE_PHOTO_CAPTURED",
+            timestamp: new Date().toISOString(),
+            assessmentId: id,
+            userId: email,
+            metadata: { source: "camera_modal" },
+            snapshotBase64: photo,
+          }),
+        });
+        
+        if (!response.ok && retryCount < 2) {
+          // Retry up to 2 times with delay
+          setTimeout(() => upload(retryCount + 1), 2000);
+        }
+      } catch (err) {
+        console.warn("[ReferencePhoto] Background upload failed:", err);
+        if (retryCount < 2) {
+          setTimeout(() => upload(retryCount + 1), 2000);
+        }
+      }
+    };
+    
+    // Start upload in background (don't await)
+    upload();
+  }, [id, email]);
+
   // Handle camera consent accepted with reference photo
   const handleCameraAccept = async (referencePhoto: string): Promise<boolean> => {
     setIsStarting(true);
     setCameraError(null);
     
+    // Store camera consent and reference photo in session FIRST (instant)
+    sessionStorage.setItem("cameraProctorEnabled", "true");
+    sessionStorage.setItem("candidateReferencePhoto", referencePhoto);
+    
+    // Start background upload immediately (fire-and-forget)
+    uploadReferencePhotoBackground(referencePhoto);
+    
+    // Start camera (loads TensorFlow models) - this is the slow part
     const cameraStarted = await startCamera();
     
     if (cameraStarted) {
-      // Start candidate session (record startedAt in backend)
-      const sessionStarted = await startSession();
+      // Start candidate session in background (don't block navigation)
+      startSession().catch((err) => {
+        console.warn("[Session] Failed to record session start:", err);
+      });
       
-      if (!sessionStarted) {
-        console.warn("[Session] Failed to record session start, but continuing...");
-      }
-      
-      // Store camera consent and reference photo in session
-      sessionStorage.setItem("cameraProctorEnabled", "true");
-      sessionStorage.setItem("candidateReferencePhoto", referencePhoto);
-      
-      // Navigate to assessment
+      // Navigate to assessment immediately
       setShowCameraPrompt(false);
       router.push(`/assessment/${id}/${token}/take`);
       return true;

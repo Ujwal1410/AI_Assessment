@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/router";
 import axios from "axios";
 import { usePrecheck, type CheckType } from "@/hooks/usePrecheck";
-import { PrecheckCard, NetworkTest } from "@/components/precheck";
+import { usePrecheckExtensions } from "@/hooks/usePrecheckExtensions";
+import { PrecheckCard, NetworkTest, ExtensionWarningCard } from "@/components/precheck";
 
 interface AssessmentInfo {
   title: string;
@@ -35,6 +36,15 @@ export default function PrecheckPage() {
   // Network thresholds
   const maxLatencyMs = 500;
   const minDownloadMbps = 0.5;
+  
+  // Extension detection
+  const [isRequestingHelp, setIsRequestingHelp] = useState(false);
+  const {
+    isScanning: isExtensionScanning,
+    scanResult: extensionScanResult,
+    scan: scanExtensions,
+    reportWarning: reportExtensionWarning,
+  } = usePrecheckExtensions();
   
   // Initialize precheck hook
   const {
@@ -141,8 +151,18 @@ export default function PrecheckPage() {
     
     setIsCheckingSequence(true);
     await runCheck(currentCheckType);
+    
+    // Run extension scan when browser check completes
+    if (currentCheckType === "browser") {
+      try {
+        await scanExtensions();
+      } catch (e) {
+        console.error("Extension scan failed:", e);
+      }
+    }
+    
     setIsCheckingSequence(false);
-  }, [currentCheckType, isCheckingSequence, runCheck]);
+  }, [currentCheckType, isCheckingSequence, runCheck, scanExtensions]);
   
   // Handle moving to next check
   const handleNextCheck = useCallback(() => {
@@ -165,6 +185,29 @@ export default function PrecheckPage() {
     stopAllStreams();
     router.push(`/assessment/${assessmentId}/${token}/instructions`);
   }, [assessmentId, token, router, stopAllStreams]);
+  
+  // Handle extension re-scan
+  const handleExtensionRescan = useCallback(async () => {
+    try {
+      await scanExtensions();
+    } catch (e) {
+      console.error("Extension re-scan failed:", e);
+    }
+  }, [scanExtensions]);
+  
+  // Handle request help for extensions
+  const handleExtensionRequestHelp = useCallback(async () => {
+    if (!assessmentId || !email) return;
+    setIsRequestingHelp(true);
+    try {
+      await reportExtensionWarning(assessmentId as string, email);
+    } finally {
+      setIsRequestingHelp(false);
+    }
+  }, [assessmentId, email, reportExtensionWarning]);
+  
+  // Check if blocked by high-risk extensions
+  const isBlockedByExtensions = extensionScanResult?.hasHighRisk ?? false;
   
   // Helper to get check label
   const getCheckLabel = (type: CheckType): string => {
@@ -499,6 +542,17 @@ export default function PrecheckPage() {
                   </div>
                 )}
                 
+                {/* Extension Warning Card */}
+                {type === "browser" && isCurrentStep && extensionScanResult && extensionScanResult.extensions.length > 0 && (
+                  <ExtensionWarningCard
+                    scanResult={extensionScanResult}
+                    isScanning={isExtensionScanning}
+                    onRescan={handleExtensionRescan}
+                    onRequestHelp={handleExtensionRequestHelp}
+                    isRequestingHelp={isRequestingHelp}
+                  />
+                )}
+                
                 {/* Troubleshooting */}
                 {isFailed && isCurrentStep && check?.troubleshooting && (
                   <div
@@ -525,7 +579,7 @@ export default function PrecheckPage() {
         </div>
         
         {/* System Ready Banner */}
-        {allSequentialChecksPassed && (
+        {allSequentialChecksPassed && !isBlockedByExtensions && (
           <div
             style={{
               backgroundColor: "#ecfdf5",
@@ -585,6 +639,50 @@ export default function PrecheckPage() {
                 <polyline points="9 18 15 12 9 6" />
               </svg>
             </button>
+          </div>
+        )}
+        
+        {/* Blocked by Extensions Warning */}
+        {allSequentialChecksPassed && isBlockedByExtensions && (
+          <div
+            style={{
+              backgroundColor: "#fef2f2",
+              border: "2px solid #ef4444",
+              borderRadius: "0.75rem",
+              padding: "1.25rem",
+              marginBottom: "1.5rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "1rem",
+            }}
+            role="alert"
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                backgroundColor: "#ef4444",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "#991b1b", margin: 0 }}>
+                Action Required
+              </h2>
+              <p style={{ fontSize: "0.875rem", color: "#dc2626", margin: "0.25rem 0 0 0" }}>
+                Please disable screen recording or automation tools detected in Browser Compatibility check before proceeding.
+              </p>
+            </div>
           </div>
         )}
         

@@ -19,6 +19,8 @@ const VALID_EVENT_TYPES = new Set([
   "FACE_MISMATCH",
   "CAMERA_DENIED",
   "CAMERA_ERROR",
+  "PRECHECK_WARNING",
+  "REFERENCE_PHOTO_CAPTURED",
 ]);
 
 interface ViolationPayload {

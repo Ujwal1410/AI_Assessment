@@ -132,7 +132,7 @@ export function CameraProctorModal({
     }
   }, []);
 
-  // Capture photo from video stream
+  // Capture photo from video stream (optimized: smaller resolution, lower quality)
   const handleCapturePhoto = useCallback(() => {
     if (!previewVideoRef.current || !canvasRef.current || !cameraReady) return;
     
@@ -147,17 +147,35 @@ export function CameraProctorModal({
       return;
     }
     
-    // Set canvas dimensions to match video
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Use smaller resolution for faster processing (640x480 max)
+    const maxWidth = 640;
+    const maxHeight = 480;
+    let targetWidth = video.videoWidth;
+    let targetHeight = video.videoHeight;
+    
+    // Scale down if needed
+    if (targetWidth > maxWidth) {
+      const ratio = maxWidth / targetWidth;
+      targetWidth = maxWidth;
+      targetHeight = Math.round(video.videoHeight * ratio);
+    }
+    if (targetHeight > maxHeight) {
+      const ratio = maxHeight / targetHeight;
+      targetHeight = maxHeight;
+      targetWidth = Math.round(targetWidth * ratio);
+    }
+    
+    // Set canvas dimensions
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
     
     // Draw mirrored image (to match what user sees)
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // Convert to base64
-    const photoData = canvas.toDataURL("image/jpeg", 0.8);
+    // Convert to base64 with lower quality (0.6) for faster upload
+    const photoData = canvas.toDataURL("image/jpeg", 0.6);
     setCapturedPhoto(photoData);
     
     // Store reference photo in sessionStorage
