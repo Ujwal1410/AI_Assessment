@@ -193,27 +193,6 @@ export default function AssessmentInstructionsPage() {
     }
   };
 
-  // Handle camera consent denied
-  const handleCameraDeny = async () => {
-    // Record camera denied event
-    await recordProctorEvent("CAMERA_DENIED", { source: "consent_modal" });
-    
-    // Store that camera was denied
-    sessionStorage.setItem("cameraProctorEnabled", "false");
-    
-    // Still allow exam to proceed (per policy - could be changed to block)
-    // Start candidate session
-    const sessionStarted = await startSession();
-    
-    if (!sessionStarted) {
-      console.warn("[Session] Failed to record session start, but continuing...");
-    }
-    
-    // Navigate to assessment (camera proctoring will be disabled)
-    setShowCameraPrompt(false);
-    router.push(`/assessment/${id}/${token}/take`);
-  };
-
   // Handle fullscreen failure from prompt
   const handleFullscreenFailed = () => {
     setFullscreenError(true);
@@ -355,7 +334,6 @@ export default function AssessmentInstructionsPage() {
       <CameraProctorModal
         isOpen={showCameraPrompt}
         onAccept={handleCameraAccept}
-        onDeny={handleCameraDeny}
         candidateName={name || undefined}
         isLoading={isStarting}
         cameraError={cameraError}

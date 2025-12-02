@@ -3,7 +3,6 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 interface CameraProctorModalProps {
   isOpen: boolean;
   onAccept: () => Promise<boolean>;
-  onDeny: () => void;
   candidateName?: string;
   isLoading?: boolean;
   cameraError?: string | null;
@@ -11,12 +10,11 @@ interface CameraProctorModalProps {
 
 /**
  * Modal for camera proctoring consent and initialization.
- * Shows privacy notice and requires explicit consent before starting camera monitoring.
+ * Camera auto-starts when modal opens. Requires explicit consent before starting proctoring.
  */
 export function CameraProctorModal({
   isOpen,
   onAccept,
-  onDeny,
   candidateName,
   isLoading = false,
   cameraError = null,
@@ -26,11 +24,27 @@ export function CameraProctorModal({
   const [consentChecked, setConsentChecked] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const previewStreamRef = useRef<MediaStream | null>(null);
 
-  // Focus the accept button when modal opens
+  // Auto-start camera when modal opens
+  useEffect(() => {
+    if (isOpen && !previewStreamRef.current) {
+      startCameraPreview();
+    }
+    
+    // Cleanup when modal closes
+    if (!isOpen && previewStreamRef.current) {
+      previewStreamRef.current.getTracks().forEach(track => track.stop());
+      previewStreamRef.current = null;
+      setCameraReady(false);
+      setIsCameraLoading(false);
+    }
+  }, [isOpen]);
+
+  // Focus the accept button when modal opens and consent is checked
   useEffect(() => {
     if (isOpen && acceptButtonRef.current && consentChecked) {
       acceptButtonRef.current.focus();
@@ -87,18 +101,11 @@ export function CameraProctorModal({
     };
   }, []);
 
-  // Stop preview when modal closes
-  useEffect(() => {
-    if (!isOpen && previewStreamRef.current) {
-      previewStreamRef.current.getTracks().forEach(track => track.stop());
-      previewStreamRef.current = null;
-      setShowPreview(false);
-    }
-  }, [isOpen]);
-
-  const handlePreviewCamera = useCallback(async () => {
+  const startCameraPreview = useCallback(async () => {
     try {
+      setIsCameraLoading(true);
       setLocalError(null);
+      
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 640 },
@@ -112,10 +119,12 @@ export function CameraProctorModal({
         previewVideoRef.current.srcObject = stream;
         await previewVideoRef.current.play();
       }
-      setShowPreview(true);
+      setCameraReady(true);
     } catch (error) {
       console.error("Camera preview error:", error);
-      setLocalError("Could not access camera. Please check your permissions.");
+      setLocalError("Could not access camera. Please check your permissions and try again.");
+    } finally {
+      setIsCameraLoading(false);
     }
   }, []);
 
@@ -129,28 +138,23 @@ export function CameraProctorModal({
     if (previewStreamRef.current) {
       previewStreamRef.current.getTracks().forEach(track => track.stop());
       previewStreamRef.current = null;
-      setShowPreview(false);
+      setCameraReady(false);
     }
     
     try {
       const success = await onAccept();
       if (!success) {
         setLocalError("Failed to start camera proctoring. Please try again.");
+        // Restart preview on failure
+        startCameraPreview();
       }
     } catch (error) {
       setLocalError("An error occurred. Please try again.");
+      // Restart preview on failure
+      startCameraPreview();
     } finally {
       setIsStarting(false);
     }
-  };
-
-  const handleDenyClick = () => {
-    // Stop preview if running
-    if (previewStreamRef.current) {
-      previewStreamRef.current.getTracks().forEach(track => track.stop());
-      previewStreamRef.current = null;
-    }
-    onDeny();
   };
 
   const displayError = cameraError || localError;
@@ -185,7 +189,7 @@ export function CameraProctorModal({
           maxWidth: "580px",
           width: "100%",
           maxHeight: "90vh",
-          overflow: "auto",
+          overflowY: "auto",
           padding: "2rem",
           boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
           animation: "cameraModalFadeIn 0.2s ease-out",
@@ -280,34 +284,119 @@ export function CameraProctorModal({
             <p style={{ margin: 0, color: "#dc2626", fontSize: "0.875rem", fontWeight: 500 }}>
               {displayError}
             </p>
+            <button
+              type="button"
+              onClick={startCameraPreview}
+              style={{
+                marginTop: "0.75rem",
+                padding: "0.5rem 1rem",
+                backgroundColor: "#fef2f2",
+                color: "#dc2626",
+                border: "1px solid #fecaca",
+                borderRadius: "0.375rem",
+                fontSize: "0.8125rem",
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              Retry Camera Access
+            </button>
           </div>
         )}
 
-        {/* Camera Preview */}
-        {showPreview && (
-          <div
-            style={{
-              marginBottom: "1rem",
-              borderRadius: "0.5rem",
-              overflow: "hidden",
-              backgroundColor: "#000",
-              aspectRatio: "16/9",
-            }}
-          >
-            <video
-              ref={previewVideoRef}
-              autoPlay
-              playsInline
-              muted
+        {/* Camera Preview with Loading */}
+        <div
+          style={{
+            marginBottom: "1rem",
+            borderRadius: "0.5rem",
+            overflow: "hidden",
+            backgroundColor: "#000",
+            aspectRatio: "16/9",
+            position: "relative",
+          }}
+        >
+          {/* Loading indicator */}
+          {isCameraLoading && (
+            <div
               style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                transform: "scaleX(-1)", // Mirror the video
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#1e293b",
+                zIndex: 1,
               }}
-            />
-          </div>
-        )}
+            >
+              <svg
+                width="40"
+                height="40"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth="2"
+                style={{ animation: "spin 1s linear infinite" }}
+              >
+                <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
+              </svg>
+              <p style={{ color: "#94a3b8", marginTop: "0.75rem", fontSize: "0.875rem" }}>
+                Initializing camera...
+              </p>
+            </div>
+          )}
+          
+          {/* Video element */}
+          <video
+            ref={previewVideoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              transform: "scaleX(-1)",
+              display: cameraReady ? "block" : "none",
+            }}
+          />
+          
+          {/* Placeholder when camera not ready and not loading */}
+          {!isCameraLoading && !cameraReady && !displayError && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#1e293b",
+              }}
+            >
+              <svg
+                width="48"
+                height="48"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#64748b"
+                strokeWidth="1.5"
+              >
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+              <p style={{ color: "#64748b", marginTop: "0.5rem", fontSize: "0.875rem" }}>
+                Camera preview
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Description */}
         <div
@@ -360,50 +449,6 @@ export function CameraProctorModal({
           </div>
         </div>
 
-        {/* Test Camera Button */}
-        {!showPreview && (
-          <button
-            type="button"
-            onClick={handlePreviewCamera}
-            style={{
-              width: "100%",
-              padding: "0.75rem",
-              backgroundColor: "#f1f5f9",
-              color: "#475569",
-              border: "1px solid #e2e8f0",
-              borderRadius: "0.5rem",
-              fontSize: "0.875rem",
-              fontWeight: 500,
-              cursor: "pointer",
-              marginBottom: "1rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "0.5rem",
-              transition: "background-color 0.2s",
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.backgroundColor = "#e2e8f0";
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.backgroundColor = "#f1f5f9";
-            }}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polygon points="23 7 16 12 23 17 23 7" />
-              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-            </svg>
-            Preview Camera
-          </button>
-        )}
-
         {/* Consent Checkbox */}
         <label
           style={{
@@ -437,104 +482,73 @@ export function CameraProctorModal({
           </span>
         </label>
 
-        {/* Action Buttons */}
-        <div style={{ display: "flex", gap: "0.75rem" }}>
-          <button
-            type="button"
-            onClick={handleDenyClick}
-            disabled={isStarting || isLoading}
-            style={{
-              flex: 1,
-              padding: "0.875rem",
-              backgroundColor: "#f1f5f9",
-              color: "#64748b",
-              border: "1px solid #e2e8f0",
-              borderRadius: "0.5rem",
-              fontSize: "0.9375rem",
-              fontWeight: 500,
-              cursor: isStarting || isLoading ? "not-allowed" : "pointer",
-              opacity: isStarting || isLoading ? 0.7 : 1,
-              transition: "background-color 0.2s",
-            }}
-            onMouseOver={(e) => {
-              if (!isStarting && !isLoading) {
-                e.currentTarget.style.backgroundColor = "#e2e8f0";
-              }
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.backgroundColor = "#f1f5f9";
-            }}
-          >
-            Deny Camera
-          </button>
-          
-          <button
-            ref={acceptButtonRef}
-            type="button"
-            onClick={handleAcceptClick}
-            disabled={!consentChecked || isStarting || isLoading}
-            style={{
-              flex: 2,
-              padding: "0.875rem",
-              backgroundColor: consentChecked && !isStarting && !isLoading ? "#10b981" : "#94a3b8",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "0.5rem",
-              fontSize: "0.9375rem",
-              fontWeight: 600,
-              cursor: consentChecked && !isStarting && !isLoading ? "pointer" : "not-allowed",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "0.5rem",
-              transition: "background-color 0.2s",
-            }}
-            onMouseOver={(e) => {
-              if (consentChecked && !isStarting && !isLoading) {
-                e.currentTarget.style.backgroundColor = "#059669";
-              }
-            }}
-            onMouseOut={(e) => {
-              if (consentChecked && !isStarting && !isLoading) {
-                e.currentTarget.style.backgroundColor = "#10b981";
-              }
-            }}
-          >
-            {isStarting || isLoading ? (
-              <>
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  style={{ animation: "spin 1s linear infinite" }}
-                >
-                  <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-                </svg>
-                Starting Camera...
-              </>
-            ) : (
-              <>
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                  <circle cx="12" cy="13" r="4" />
-                </svg>
-                Allow Camera &amp; Start Proctoring
-              </>
-            )}
-          </button>
-        </div>
+        {/* Action Button - Only Accept */}
+        <button
+          ref={acceptButtonRef}
+          type="button"
+          onClick={handleAcceptClick}
+          disabled={!consentChecked || isStarting || isLoading || !cameraReady}
+          style={{
+            width: "100%",
+            padding: "0.875rem",
+            backgroundColor: consentChecked && !isStarting && !isLoading && cameraReady ? "#10b981" : "#94a3b8",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "0.5rem",
+            fontSize: "0.9375rem",
+            fontWeight: 600,
+            cursor: consentChecked && !isStarting && !isLoading && cameraReady ? "pointer" : "not-allowed",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.5rem",
+            transition: "background-color 0.2s",
+          }}
+          onMouseOver={(e) => {
+            if (consentChecked && !isStarting && !isLoading && cameraReady) {
+              e.currentTarget.style.backgroundColor = "#059669";
+            }
+          }}
+          onMouseOut={(e) => {
+            if (consentChecked && !isStarting && !isLoading && cameraReady) {
+              e.currentTarget.style.backgroundColor = "#10b981";
+            }
+          }}
+        >
+          {isStarting || isLoading ? (
+            <>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                style={{ animation: "spin 1s linear infinite" }}
+              >
+                <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
+              </svg>
+              Starting Camera...
+            </>
+          ) : (
+            <>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+              </svg>
+              Allow Camera &amp; Start Proctoring
+            </>
+          )}
+        </button>
 
-        {/* Warning about denying */}
+        {/* Helper text */}
         <p
           style={{
             textAlign: "center",
@@ -543,7 +557,7 @@ export function CameraProctorModal({
             marginTop: "1rem",
           }}
         >
-          Denying camera access may affect your ability to complete this assessment.
+          Camera access is required to proceed with this assessment.
         </p>
       </div>
 
@@ -569,4 +583,3 @@ export function CameraProctorModal({
 }
 
 export default CameraProctorModal;
-
