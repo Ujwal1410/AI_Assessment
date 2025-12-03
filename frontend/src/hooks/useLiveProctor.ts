@@ -323,8 +323,8 @@ export function useLiveProctor({
 
   // Poll for pending sessions from admin - now startStreamingWithSession is defined
   const checkForPendingSession = useCallback(async () => {
-    // Skip if already streaming, connecting, or missing params
-    if (isStreamingRef.current || isConnectingRef.current || !assessmentId || !candidateId) {
+    // Skip if connecting or missing params
+    if (isConnectingRef.current || !assessmentId || !candidateId) {
       return;
     }
     
@@ -344,7 +344,26 @@ export function useLiveProctor({
         
         // Process sessions that need streaming (pending or offer_sent from previous attempt)
         if (session.status === "pending" || session.status === "offer_sent") {
-          log("Session found, starting streaming...", { sessionId: session.sessionId, status: session.status });
+          log("New session found!", { sessionId: session.sessionId, status: session.status });
+          
+          // If already streaming to a DIFFERENT session, cleanup first
+          // This handles when admin uses "Live Proctoring" which creates new sessions
+          if (isStreamingRef.current && pendingSessionRef.current?.sessionId !== session.sessionId) {
+            log("New session detected, cleaning up old connection...");
+            // Cleanup old connection without ending the session (admin might have ended it)
+            if (peerConnectionRef.current) {
+              peerConnectionRef.current.close();
+              peerConnectionRef.current = null;
+            }
+            if (icePollIntervalRef.current) {
+              clearInterval(icePollIntervalRef.current);
+              icePollIntervalRef.current = null;
+            }
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+          }
+          
+          // Now start streaming to new session
           processedSessionsRef.current.add(session.sessionId);
           pendingSessionRef.current = session;
           
