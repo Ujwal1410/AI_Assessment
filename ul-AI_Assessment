@@ -1,0 +1,33 @@
+[33mcommit 4537fc24cc842d2001b3eabd890a4ceb747bd0c0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Ujwal1410 <manojkulal78@gmail.com>
+Date:   Wed Dec 3 16:21:37 2025 +0530
+
+    Fix: Stream persistence + Enhanced precheck (active extension detection, network display, mic record/play)
+
+frontend/src/components/precheck/ExtensionWarningCard.tsx
+frontend/src/components/precheck/NetworkTest.tsx
+frontend/src/components/precheck/PRECHECK_README.md
+frontend/src/components/precheck/PrecheckCard.tsx
+frontend/src/components/precheck/index.ts
+frontend/src/components/proctor/CAMERA_PROCTOR_README.md
+frontend/src/components/proctor/CameraProctorModal.tsx
+frontend/src/components/proctor/HumanProctorPanel.tsx
+frontend/src/components/proctor/LiveProctorConsent.tsx
+frontend/src/components/proctor/MultiProctorGrid.tsx
+frontend/src/components/proctor/ProctorStatusWidget.tsx
+frontend/src/hooks/useCameraProctor.ts
+frontend/src/hooks/useLiveProctor.ts
+frontend/src/hooks/useLiveProctorAdmin.ts
+frontend/src/hooks/useMultiLiveProctorAdmin.ts
+frontend/src/hooks/usePrecheck.ts
+frontend/src/hooks/usePrecheckExtensions.ts
+frontend/src/pages/admin/assessment/[assessmentId]/live-proctoring.tsx
+frontend/src/pages/precheck/[assessmentId]/[token].tsx
+
+[33mcommit 5e353e61177d19912678e1a3c9b1cdad83abf097[m
+Author: Ujwal1410 <manojkulal78@gmail.com>
+Date:   Tue Dec 2 09:56:16 2025 +0530
+
+    Pulled and merged changes for test repo
+
+AI-Assessment

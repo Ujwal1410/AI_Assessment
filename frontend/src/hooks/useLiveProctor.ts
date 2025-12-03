@@ -139,29 +139,25 @@ export function useLiveProctor({
     [log]
   );
 
-  // Cleanup streaming
+  // Cleanup streaming - ONLY closes peer connection, NOT media streams
+  // Streams persist until component unmount (test submission/exit)
   const cleanupStreaming = useCallback((sessId?: string) => {
-    log("Stopping stream...");
+    log("Closing peer connection (streams stay alive)...");
     
+    // Clear ICE polling
     if (icePollIntervalRef.current) {
       clearInterval(icePollIntervalRef.current);
       icePollIntervalRef.current = null;
     }
     
+    // Close peer connection only - DO NOT stop media streams
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
     
-    if (webcamStreamRef.current) {
-      webcamStreamRef.current.getTracks().forEach((track) => track.stop());
-      webcamStreamRef.current = null;
-    }
-    
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach((track) => track.stop());
-      screenStreamRef.current = null;
-    }
+    // NOTE: We intentionally DO NOT stop webcamStreamRef or screenStreamRef here!
+    // Streams should persist so admin can reconnect without asking candidate again
     
     // Log session ended event
     if (sessId) {
