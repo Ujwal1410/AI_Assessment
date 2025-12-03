@@ -43,6 +43,11 @@ export default withAuth(
           return true; // These routes have their own token-based auth
         }
 
+        // DSA test routes (use token from URL, not session)
+        if (pathname.startsWith("/test/")) {
+          return true; // These routes have their own token-based auth
+        }
+
         // Candidate-facing API routes should remain public (token validated server-side)
         if (pathname.startsWith("/api/assessment/")) {
           return true;
