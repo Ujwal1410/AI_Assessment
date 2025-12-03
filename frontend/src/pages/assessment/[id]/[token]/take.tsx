@@ -151,7 +151,6 @@ export default function CandidateAssessmentPage() {
     showConsentPopup: showLiveProctorConsent,
     startStreaming: startLiveStreaming,
     stopStreaming: stopLiveStreaming,
-    declineConsent: declineLiveConsent,
   } = useLiveProctor({
     assessmentId: (id as string) || "",
     candidateId: candidateEmail || "",
@@ -1433,11 +1432,10 @@ export default function CandidateAssessmentPage() {
         onExitFullscreen={exitFullscreen}
       />
 
-      {/* Live Proctoring Consent - shown when admin wants to watch */}
+      {/* Live Proctoring Notification - shown when admin starts watching */}
       <LiveProctorConsent
         isVisible={showLiveProctorConsent}
         onAccept={startLiveStreaming}
-        onDecline={declineLiveConsent}
       />
 
       {/* Live Streaming Indicator */}

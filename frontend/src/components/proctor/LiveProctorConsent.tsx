@@ -1,31 +1,40 @@
 /**
  * LiveProctorConsent Component
  * 
- * Shows consent popup when admin wants to watch candidate live.
- * Candidate must accept to start streaming webcam + screen.
+ * Shows notification when admin starts watching candidate live.
+ * No decline option - just a notification with OK button.
  */
 
-import React from "react";
+import React, { useEffect } from "react";
 
 interface LiveProctorConsentProps {
   isVisible: boolean;
   onAccept: () => void;
-  onDecline: () => void;
+  onDecline?: () => void; // Optional, not used anymore
 }
 
 export function LiveProctorConsent({
   isVisible,
   onAccept,
-  onDecline,
 }: LiveProctorConsentProps) {
+  // Auto-start streaming after 3 seconds if user doesn't click
+  useEffect(() => {
+    if (isVisible) {
+      const timer = setTimeout(() => {
+        onAccept();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible, onAccept]);
+
   if (!isVisible) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="mx-4 max-w-md rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 p-6 shadow-2xl border border-slate-700">
+      <div className="mx-4 max-w-md rounded-2xl bg-gradient-to-b from-slate-800 to-slate-900 p-6 shadow-2xl border border-amber-500/50">
         {/* Icon */}
         <div className="mb-4 flex justify-center">
-          <div className="rounded-full bg-amber-500/20 p-4">
+          <div className="rounded-full bg-amber-500/20 p-4 animate-pulse">
             <svg
               className="h-12 w-12 text-amber-400"
               fill="none"
@@ -44,12 +53,12 @@ export function LiveProctorConsent({
 
         {/* Title */}
         <h2 className="mb-2 text-center text-xl font-bold text-white">
-          Human Proctor Request
+          🔴 Human Proctor Active
         </h2>
 
         {/* Description */}
         <p className="mb-4 text-center text-slate-300 text-sm leading-relaxed">
-          A proctor has requested to monitor your exam session. Your{" "}
+          A proctor is now monitoring your exam session. Your{" "}
           <span className="font-semibold text-amber-400">screen</span> and{" "}
           <span className="font-semibold text-amber-400">camera</span> will be
           streamed in real-time.
@@ -58,7 +67,7 @@ export function LiveProctorConsent({
         {/* What will be shared */}
         <div className="mb-6 rounded-xl bg-slate-800/50 p-4">
           <h3 className="mb-3 text-sm font-semibold text-slate-200">
-            What will be shared:
+            What is being shared:
           </h3>
           <ul className="space-y-2 text-sm text-slate-400">
             <li className="flex items-center gap-2">
@@ -95,25 +104,22 @@ export function LiveProctorConsent({
         </div>
 
         {/* Notice */}
-        <p className="mb-6 text-center text-xs text-slate-500">
-          This is required for exam integrity. Declining may affect your assessment.
+        <p className="mb-4 text-center text-xs text-slate-500">
+          This is required for exam integrity. Streaming will start automatically.
         </p>
 
-        {/* Buttons */}
-        <div className="flex gap-3">
-          <button
-            onClick={onDecline}
-            className="flex-1 rounded-xl border border-slate-600 bg-slate-700/50 py-3 text-sm font-medium text-slate-300 transition-all hover:bg-slate-700 hover:border-slate-500"
-          >
-            Decline
-          </button>
-          <button
-            onClick={onAccept}
-            className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 py-3 text-sm font-bold text-white shadow-lg transition-all hover:from-amber-400 hover:to-orange-500 hover:shadow-amber-500/25"
-          >
-            Accept & Share
-          </button>
-        </div>
+        {/* Single OK Button */}
+        <button
+          onClick={onAccept}
+          className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 py-3 text-sm font-bold text-white shadow-lg transition-all hover:from-amber-400 hover:to-orange-500 hover:shadow-amber-500/25"
+        >
+          OK, I Understand
+        </button>
+
+        {/* Auto-start countdown */}
+        <p className="mt-3 text-center text-xs text-slate-500 animate-pulse">
+          Starting automatically in 3 seconds...
+        </p>
       </div>
     </div>
   );
