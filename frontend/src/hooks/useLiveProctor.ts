@@ -24,6 +24,8 @@ interface LiveProctorSession {
 interface UseLiveProctorOptions {
   assessmentId: string;
   candidateId: string;
+  screenStream?: MediaStream | null; // Pre-captured screen stream
+  webcamStream?: MediaStream | null; // Pre-captured webcam stream
   onSessionStart?: () => void;
   onSessionEnd?: () => void;
   onError?: (error: string) => void;
@@ -33,6 +35,8 @@ interface UseLiveProctorOptions {
 export function useLiveProctor({
   assessmentId,
   candidateId,
+  screenStream: preScreenStream,
+  webcamStream: preWebcamStream,
   onSessionStart,
   onSessionEnd,
   onError,
@@ -195,11 +199,19 @@ export function useLiveProctor({
       webcamStreamRef.current = webcamStream;
       log("Webcam stream acquired");
       
-      // Get screen share stream
+      // Get screen share stream - prefer entire screen (monitor)
       log("Requesting screen share...");
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: 1280, height: 720 },
+        video: { 
+          displaySurface: "monitor", // Prefer entire screen over tab/window
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         audio: false,
+        // @ts-ignore - preferCurrentTab is not in types but supported
+        preferCurrentTab: false, // Don't prefer current tab
+        selfBrowserSurface: "exclude", // Exclude current browser from options
+        systemAudio: "exclude",
       });
       screenStreamRef.current = screenStream;
       log("Screen stream acquired");
