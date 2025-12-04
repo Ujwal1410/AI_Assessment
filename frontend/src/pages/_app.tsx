@@ -37,10 +37,15 @@ function SmoothScroll() {
 }
 
 function SessionRefreshListener() {
-  const { update } = useSession();
+  const { update, status } = useSession();
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    // Only run session refresh logic if user is authenticated
+    if (status !== "authenticated") {
+      return;
+    }
+
     const handleTokenRefreshed = async (event: Event) => {
       const { backendToken, refreshToken } = (event as CustomEvent<{
         backendToken: string;
@@ -141,7 +146,7 @@ function SessionRefreshListener() {
       }
     };
 
-    // Check immediately on mount
+    // Check immediately on mount (only for authenticated users)
     checkAndRefreshToken();
 
     // Then check every 5 minutes (300000 ms)
@@ -153,7 +158,7 @@ function SessionRefreshListener() {
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [update]);
+  }, [update, status]);
 
   return null;
 }
