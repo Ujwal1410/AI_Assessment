@@ -67,11 +67,44 @@ export default function SignupPage({ providers }: SignupPageProps) {
 
   const googleProvider = providers ? providers["google"] : undefined;
   const microsoftProvider = providers ? providers["azure-ad"] ?? providers["azuread"] : undefined;
+  
+  // Get callback URL from query or default to dashboard
+  const callbackUrl = (router.query.callbackUrl as string) ?? "/dashboard";
 
   const showMessage = (type: StatusMessage["type"], text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 6000);
   };
+
+  // Check for OAuth errors in URL (from NextAuth callback)
+  useEffect(() => {
+    const error = router.query.error as string | undefined;
+    if (error) {
+      let errorMessage = "Authentication failed. Please try again.";
+      if (error === "OAuthSignin") {
+        errorMessage = "Error in OAuth sign-in process. Please try again.";
+      } else if (error === "OAuthCallback") {
+        errorMessage = "Error in OAuth callback. Please try again.";
+      } else if (error === "OAuthCreateAccount") {
+        errorMessage = "Could not create OAuth account. Please try again.";
+      } else if (error === "EmailCreateAccount") {
+        errorMessage = "Could not create email account. Please try again.";
+      } else if (error === "Callback") {
+        errorMessage = "Error in callback. Please try again.";
+      } else if (error === "OAuthAccountNotLinked") {
+        errorMessage = "This account is already linked to another provider. Please sign in with your original provider.";
+      } else if (error === "EmailSignin") {
+        errorMessage = "Error sending email. Please try again.";
+      } else if (error === "CredentialsSignin") {
+        errorMessage = "Invalid credentials. Please check your email and password.";
+      } else if (error === "SessionRequired") {
+        errorMessage = "Please sign in to access this page.";
+      }
+      showMessage("error", errorMessage);
+      // Clean up URL
+      router.replace("/auth/signup", undefined, { shallow: true });
+    }
+  }, [router.query.error, router]);
 
   // Countdown timer effect
   useEffect(() => {
@@ -275,7 +308,7 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   {googleProvider && (
                     <button
                       type="button"
-                      onClick={() => signIn("google")}
+                      onClick={() => signIn("google", { callbackUrl })}
                       style={{
                         width: "100%",
                         padding: "0.5rem 0.75rem",
@@ -306,7 +339,7 @@ export default function SignupPage({ providers }: SignupPageProps) {
                   {microsoftProvider && (
                     <button
                       type="button"
-                      onClick={() => signIn(microsoftProvider.id)}
+                      onClick={() => signIn(microsoftProvider.id, { callbackUrl })}
                       style={{
                         width: "100%",
                         padding: "0.5rem 0.75rem",

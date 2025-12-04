@@ -9,7 +9,8 @@ export type CameraProctorEventType =
   | "GAZE_AWAY" 
   | "SPOOF_DETECTED" 
   | "CAMERA_DENIED"
-  | "CAMERA_ERROR";
+  | "CAMERA_ERROR"
+  | "FACE_MISMATCH";
 
 export interface CameraProctorViolation {
   eventType: CameraProctorEventType;
@@ -42,6 +43,7 @@ interface UseCameraProctorOptions {
   gazeAwayThreshold?: number; // Consecutive checks before GAZE_AWAY
   multiFaceConfidenceThreshold?: number;
   blinkTimeoutSeconds?: number; // Time without blinks before SPOOF_DETECTED
+  faceMismatchThreshold?: number; // Face similarity threshold (0-1, lower = stricter)
   debugMode?: boolean;
   enabled?: boolean;
 }
@@ -85,10 +87,22 @@ const DEFAULT_THROTTLE_INTERVAL_MS = 5000;
 const DEFAULT_GAZE_AWAY_THRESHOLD = 3; // 3 consecutive checks ≈ 2.1s
 const DEFAULT_MULTI_FACE_CONFIDENCE = 0.5;
 const DEFAULT_BLINK_TIMEOUT_SECONDS = 6;
+const DEFAULT_FACE_MISMATCH_THRESHOLD = 0.35; // Similarity threshold (lower = stricter)
 const VIDEO_WIDTH = 640;
-const VIDEO_HEIGHT = 360;
+const VIDEO_HEIGHT = 480;
 const INFERENCE_WIDTH = 320;
-const INFERENCE_HEIGHT = 180;
+const INFERENCE_HEIGHT = 240;
+
+// Face comparison constants
+const FACE_COMPARISON_LANDMARKS = [
+  // Key facial structure points
+  10, 152, 234, 454, // Forehead, chin, left cheek, right cheek
+  33, 133, 362, 263, // Eye corners
+  1, 4, 5, 6, // Nose bridge and tip
+  61, 291, 0, 17, // Mouth corners and lips
+  70, 300, 151, 9, // Eyebrows
+];
+const FACE_MISMATCH_CONSECUTIVE_THRESHOLD = 3; // Consecutive mismatches before alerting
 
 // Eye aspect ratio threshold for blink detection
 const EYE_AR_THRESHOLD = 0.2;
@@ -136,6 +150,66 @@ const calculateEAR = (eyeLandmarks: number[][]): number => {
   
   if (h === 0) return 1;
   return (v1 + v2) / (2.0 * h);
+};
+
+// Normalize face landmarks for comparison (removes position/scale dependency)
+const normalizeFaceLandmarks = (keypoints: any[]): number[][] | null => {
+  if (!keypoints || keypoints.length < 468) return null;
+  
+  // Get face bounding box from key points
+  const relevantPoints = FACE_COMPARISON_LANDMARKS.map(i => keypoints[i]).filter(p => p);
+  if (relevantPoints.length < FACE_COMPARISON_LANDMARKS.length * 0.8) return null;
+  
+  const xs = relevantPoints.map(p => p.x);
+  const ys = relevantPoints.map(p => p.y);
+  
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  
+  const width = maxX - minX;
+  const height = maxY - minY;
+  
+  if (width < 10 || height < 10) return null;
+  
+  // Normalize to 0-1 range relative to face bounding box
+  return relevantPoints.map(p => [
+    (p.x - minX) / width,
+    (p.y - minY) / height
+  ]);
+};
+
+// Calculate face similarity score between two sets of normalized landmarks
+const calculateFaceSimilarity = (
+  landmarks1: number[][] | null,
+  landmarks2: number[][] | null
+): number => {
+  if (!landmarks1 || !landmarks2) return 0;
+  if (landmarks1.length !== landmarks2.length) return 0;
+  
+  // Calculate Euclidean distances between corresponding points
+  let totalDistance = 0;
+  let validPairs = 0;
+  
+  for (let i = 0; i < landmarks1.length; i++) {
+    const dx = landmarks1[i][0] - landmarks2[i][0];
+    const dy = landmarks1[i][1] - landmarks2[i][1];
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Ignore points that differ too much (possible detection errors)
+    if (distance < 0.5) {
+      totalDistance += distance;
+      validPairs++;
+    }
+  }
+  
+  if (validPairs < landmarks1.length * 0.5) return 0;
+  
+  const avgDistance = totalDistance / validPairs;
+  // Convert distance to similarity (0 = no match, 1 = perfect match)
+  // Using exponential decay for smoother scoring
+  return Math.exp(-avgDistance * 8);
 };
 
 // Calculate gaze direction from iris position relative to eye corners
@@ -206,6 +280,7 @@ export function useCameraProctor({
   gazeAwayThreshold = DEFAULT_GAZE_AWAY_THRESHOLD,
   multiFaceConfidenceThreshold = DEFAULT_MULTI_FACE_CONFIDENCE,
   blinkTimeoutSeconds = DEFAULT_BLINK_TIMEOUT_SECONDS,
+  faceMismatchThreshold = DEFAULT_FACE_MISMATCH_THRESHOLD,
   debugMode = isDebugModeEnabled(),
   enabled = true,
 }: UseCameraProctorOptions): UseCameraProctorReturn {
@@ -241,6 +316,11 @@ export function useCameraProctor({
   const previousLandmarksRef = useRef<number[][] | null>(null);
   const headMovementHistoryRef = useRef<number[]>([]);
   const fpsCounterRef = useRef({ frames: 0, lastTime: Date.now() });
+  
+  // Face comparison refs
+  const referenceFaceLandmarksRef = useRef<number[][] | null>(null);
+  const faceMismatchCountRef = useRef(0);
+  const referencePhotoLoadedRef = useRef(false);
   
   // ============================================================================
   // Debug Logger
@@ -301,12 +381,16 @@ export function useCameraProctor({
     metadata?: Record<string, unknown>,
     captureImage: boolean = true
   ) => {
+    // Always log to console for debugging
+    console.log(`[CameraProctor] Attempting to record: ${eventType}`, { userId, assessmentId });
+    
     if (!userId || !assessmentId) {
-      debugLog("Skipped recording - missing userId or assessmentId");
+      console.warn("[CameraProctor] Skipped recording - missing userId or assessmentId", { userId, assessmentId });
       return;
     }
     
     if (!shouldRecordEvent(eventType)) {
+      console.log(`[CameraProctor] Event ${eventType} throttled`);
       return;
     }
     
@@ -323,8 +407,13 @@ export function useCameraProctor({
     
     setLastViolation(violation);
     
-    debugLog(`Event recorded: ${eventType}`, metadata);
-    console.log(`[CameraProctor] ${eventType} violation recorded:`, { eventType, userId, assessmentId });
+    console.log(`[CameraProctor] Recording ${eventType} violation:`, { 
+      eventType, 
+      userId, 
+      assessmentId,
+      hasSnapshot: !!snapshotBase64,
+      metadata 
+    });
     
     if (onViolation) {
       onViolation(violation);
@@ -332,6 +421,7 @@ export function useCameraProctor({
     
     // Send to backend
     try {
+      console.log("[CameraProctor] Sending to /api/proctor/record...");
       const response = await fetch("/api/proctor/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -339,14 +429,16 @@ export function useCameraProctor({
       });
       
       if (!response.ok) {
-        console.error("[CameraProctor] Failed to record violation:", response.statusText);
+        const errorText = await response.text();
+        console.error("[CameraProctor] Failed to record violation:", response.status, response.statusText, errorText);
       } else {
-        debugLog("Event sent to server successfully");
+        const result = await response.json();
+        console.log("[CameraProctor] Event sent successfully:", result);
       }
     } catch (error) {
-      console.error("[CameraProctor] Error sending violation:", error);
+      console.error("[CameraProctor] Error sending violation to server:", error);
     }
-  }, [userId, assessmentId, onViolation, shouldRecordEvent, captureSnapshot, debugLog]);
+  }, [userId, assessmentId, onViolation, shouldRecordEvent, captureSnapshot]);
   
   // ============================================================================
   // Load Models (BlazeFace + FaceMesh via TensorFlow.js)
@@ -494,6 +586,36 @@ export function useCameraProctor({
             blinkCountRef.current += 1;
             lastBlinkTimeRef.current = Date.now();
             debugLog("Blink detected! Total:", blinkCountRef.current);
+          }
+          
+          // ========== Face Comparison ==========
+          // Compare current face with reference photo
+          if (referenceFaceLandmarksRef.current) {
+            const currentNormalizedLandmarks = normalizeFaceLandmarks(keypoints);
+            
+            if (currentNormalizedLandmarks) {
+              const similarity = calculateFaceSimilarity(
+                referenceFaceLandmarksRef.current,
+                currentNormalizedLandmarks
+              );
+              
+              debugLog("Face similarity score:", similarity.toFixed(3));
+              
+              if (similarity < faceMismatchThreshold) {
+                faceMismatchCountRef.current += 1;
+                
+                if (faceMismatchCountRef.current >= FACE_MISMATCH_CONSECUTIVE_THRESHOLD) {
+                  await recordViolation("FACE_MISMATCH", {
+                    similarity: similarity,
+                    threshold: faceMismatchThreshold,
+                    consecutiveMismatches: faceMismatchCountRef.current,
+                  });
+                  faceMismatchCountRef.current = 0; // Reset after recording
+                }
+              } else {
+                faceMismatchCountRef.current = 0; // Reset on match
+              }
+            }
           }
           
           // ========== Spoof Detection ==========
@@ -646,22 +768,89 @@ export function useCameraProctor({
     }
   }, [recordViolation, debugLog]);
   
-  const startCamera = useCallback(async (): Promise<boolean> => {
-    if (!enabled) {
-      debugLog("Camera proctoring is disabled");
+  // Load reference face landmarks from stored photo
+  const loadReferenceFace = useCallback(async (): Promise<boolean> => {
+    if (typeof window === "undefined") return false;
+    
+    const referencePhoto = sessionStorage.getItem("candidateReferencePhoto");
+    if (!referencePhoto) {
+      debugLog("No reference photo found in session");
+      return false;
+    }
+    
+    if (!faceMeshRef.current) {
+      debugLog("FaceMesh model not loaded yet");
       return false;
     }
     
     try {
-      debugLog("Starting camera...");
+      // Create an image element from the stored photo
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Failed to load reference image"));
+        img.src = referencePhoto;
+      });
+      
+      // Detect face landmarks in reference photo
+      const predictions = await faceMeshRef.current.estimateFaces(img);
+      
+      if (predictions.length === 0) {
+        console.warn("[CameraProctor] No face detected in reference photo");
+        return false;
+      }
+      
+      // Extract and normalize landmarks from reference face
+      const keypoints = predictions[0].keypoints;
+      const normalizedLandmarks = normalizeFaceLandmarks(keypoints);
+      
+      if (!normalizedLandmarks) {
+        console.warn("[CameraProctor] Failed to normalize reference face landmarks");
+        return false;
+      }
+      
+      referenceFaceLandmarksRef.current = normalizedLandmarks;
+      referencePhotoLoadedRef.current = true;
+      debugLog("Reference face landmarks loaded successfully");
+      
+      return true;
+    } catch (error) {
+      console.error("[CameraProctor] Failed to load reference face:", error);
+      return false;
+    }
+  }, [debugLog]);
+  
+  const startCamera = useCallback(async (): Promise<boolean> => {
+    console.log("[CameraProctor] startCamera called", { enabled, userId, assessmentId });
+    
+    if (!enabled) {
+      console.log("[CameraProctor] Camera proctoring is disabled");
+      return false;
+    }
+    
+    try {
+      console.log("[CameraProctor] Loading TensorFlow.js models...");
       
       // Load models first
       const modelsLoaded = await loadModels();
       if (!modelsLoaded) {
+        console.error("[CameraProctor] Failed to load detection models");
         setErrors(prev => [...prev, "Failed to load detection models"]);
         return false;
       }
+      console.log("[CameraProctor] Models loaded successfully");
       
+      // Load reference face for comparison
+      const refLoaded = await loadReferenceFace();
+      if (refLoaded) {
+        console.log("[CameraProctor] Reference face loaded for comparison");
+      } else {
+        console.log("[CameraProctor] Reference face not available - face comparison disabled");
+      }
+      
+      console.log("[CameraProctor] Requesting camera access...");
       // Get camera stream
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -670,12 +859,14 @@ export function useCameraProctor({
           facingMode: "user",
         },
       });
+      console.log("[CameraProctor] Camera stream obtained");
       
       streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        console.log("[CameraProctor] Video element playing");
       }
       
       setIsCameraOn(true);
@@ -684,7 +875,7 @@ export function useCameraProctor({
       // Start detection loop
       detectionIntervalRef.current = setInterval(runDetection, detectionIntervalMs);
       
-      debugLog("Camera started successfully");
+      console.log("[CameraProctor] Camera started successfully, detection loop running");
       return true;
     } catch (error) {
       console.error("[CameraProctor] Failed to start camera:", error);
@@ -697,7 +888,7 @@ export function useCameraProctor({
       setErrors(prev => [...prev, `Camera error: ${(error as Error).message}`]);
       return false;
     }
-  }, [enabled, loadModels, runDetection, detectionIntervalMs, recordViolation, debugLog]);
+  }, [enabled, userId, assessmentId, loadModels, loadReferenceFace, runDetection, detectionIntervalMs, recordViolation]);
   
   const stopCamera = useCallback(() => {
     debugLog("Stopping camera...");

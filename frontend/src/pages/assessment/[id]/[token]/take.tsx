@@ -11,7 +11,8 @@ import { useRouter } from "next/router";
 import axios from "axios";
 import { useProctor, type ProctorViolation } from "@/hooks/useProctor";
 import { useCameraProctor, type CameraProctorViolation } from "@/hooks/useCameraProctor";
-import { ProctorToast, FullscreenWarningBanner, ProctorDebugPanel, ProctorStatusWidget } from "@/components/proctor";
+import { useLiveProctor } from "@/hooks/useLiveProctor";
+import { ProctorToast, FullscreenWarningBanner, ProctorDebugPanel } from "@/components/proctor";
 
 interface Question {
   questionText: string;
@@ -65,8 +66,12 @@ export default function CandidateAssessmentPage() {
   const [showFullscreenWarning, setShowFullscreenWarning] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [cameraProctorEnabled, setCameraProctorEnabled] = useState(false);
+  
+  // Pre-captured streams from instructions page for live proctoring
+  const [preCapturedWebcamStream, setPreCapturedWebcamStream] = useState<MediaStream | null>(null);
+  const [preCapturedScreenStream, setPreCapturedScreenStream] = useState<MediaStream | null>(null);
 
-  // Check debug mode from URL params and camera proctor state
+  // Check debug mode from URL params and camera proctor state + pre-captured streams
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
@@ -75,6 +80,20 @@ export default function CandidateAssessmentPage() {
       // Check if camera proctoring was enabled in instructions
       const cameraEnabled = sessionStorage.getItem("cameraProctorEnabled") === "true";
       setCameraProctorEnabled(cameraEnabled);
+      
+      // Get pre-captured streams from instructions page
+      const webcamStream = (window as any).__webcamStream as MediaStream | undefined;
+      const screenStream = (window as any).__screenStream as MediaStream | undefined;
+      
+      if (webcamStream && webcamStream.active) {
+        console.log("[LiveProctor] Found pre-captured webcam stream");
+        setPreCapturedWebcamStream(webcamStream);
+      }
+      
+      if (screenStream && screenStream.active) {
+        console.log("[LiveProctor] Found pre-captured screen stream");
+        setPreCapturedScreenStream(screenStream);
+      }
     }
   }, []);
 
@@ -139,6 +158,28 @@ export default function CandidateAssessmentPage() {
       });
     },
     enabled: cameraProctorEnabled,
+    debugMode,
+  });
+
+  // Live proctoring hook for human proctoring (admin watching candidate)
+  // Uses pre-captured streams from instructions page - NO permission dialogs!
+  const {
+    isStreaming: isLiveStreaming,
+    connectionState: liveConnectionState,
+  } = useLiveProctor({
+    assessmentId: (id as string) || "",
+    candidateId: candidateEmail || "",
+    webcamStream: preCapturedWebcamStream,   // Pass pre-captured webcam
+    screenStream: preCapturedScreenStream,   // Pass pre-captured screen
+    onSessionStart: () => {
+      console.log("[LiveProctor] Session started - admin is watching");
+    },
+    onSessionEnd: () => {
+      console.log("[LiveProctor] Session ended");
+    },
+    onError: (error) => {
+      console.error("[LiveProctor] Error:", error);
+    },
     debugMode,
   });
 
@@ -1371,22 +1412,6 @@ export default function CandidateAssessmentPage() {
         onDismiss={() => setLatestViolation(null)}
       />
       
-      {/* Camera Proctor Status Widget */}
-      {cameraProctorEnabled && (
-        <ProctorStatusWidget
-          isCameraOn={isCameraOn}
-          isModelLoaded={isModelLoaded}
-          facesCount={facesCount}
-          gazeDirection={gazeDirection}
-          lastViolation={lastCameraViolation}
-          errors={cameraErrors}
-          debugMode={debugMode}
-          debugInfo={debugInfo}
-          videoRef={videoRef}
-          canvasRef={canvasRef}
-        />
-      )}
-      
       {/* Hidden video and canvas elements for camera proctoring */}
       {cameraProctorEnabled && (
         <>
@@ -1423,6 +1448,39 @@ export default function CandidateAssessmentPage() {
         onRequestFullscreen={requestFullscreen}
         onExitFullscreen={exitFullscreen}
       />
+
+      {/* Live Streaming Indicator */}
+      {isLiveStreaming && (
+        <div
+          style={{
+            position: "fixed",
+            top: "1rem",
+            right: "1rem",
+            backgroundColor: "#dc2626",
+            color: "white",
+            padding: "0.5rem 1rem",
+            borderRadius: "9999px",
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            zIndex: 9998,
+            boxShadow: "0 4px 6px rgba(0, 0, 0, 0.2)",
+          }}
+        >
+          <span
+            style={{
+              width: "8px",
+              height: "8px",
+              backgroundColor: "white",
+              borderRadius: "50%",
+              animation: "pulse 1.5s infinite",
+            }}
+          />
+          LIVE - Proctor Watching
+        </div>
+      )}
     </div>
   );
 }

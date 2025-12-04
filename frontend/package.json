@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "@headlessui/react": "^1.7.17",
+<<<<<<< HEAD
     "@mediapipe/face_mesh": "^0.4.1633559619",
+=======
+    "@monaco-editor/react": "^4.7.0",
+>>>>>>> bc0bbefd797471c65ea14e0be11c44b548027bba
     "@react-three/drei": "^9.105.0",
     "@react-three/fiber": "^8.16.0",
     "@splinetool/react-spline": "^4.1.0",
@@ -18,7 +22,14 @@
     "@tensorflow-models/face-landmarks-detection": "^1.0.6",
     "@tensorflow/tfjs": "^4.22.0",
     "axios": "^1.7.7",
+<<<<<<< HEAD
     "framer-motion": "^11.18.2",
+=======
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^11.0.0",
+>>>>>>> bc0bbefd797471c65ea14e0be11c44b548027bba
     "lenis": "^1.1.0",
     "lucide-react": "^0.400.0",
     "next": "14.2.9",
@@ -26,7 +37,10 @@
     "react": "18.3.1",
     "react-countup": "^6.5.3",
     "react-dom": "18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-split": "^2.0.14",
     "swiper": "^12.0.3",
+    "tailwind-merge": "^3.4.0",
     "three": "^0.164.0"
   },
   "devDependencies": {

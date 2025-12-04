@@ -132,14 +132,15 @@ export default function AssessmentInstructionsPage() {
     }
   }, []);
 
-  // Handle "Start Assessment" click - show fullscreen prompt
+  // Handle "Start Assessment" click - go directly to camera modal
+  // Fullscreen is now Step 3 inside the Camera Modal
   const handleStartClick = () => {
     if (!acknowledged || !id || !token) return;
     setFullscreenError(false);
-    setShowFullscreenPrompt(true);
+    setShowCameraPrompt(true); // Skip fullscreen prompt - it's now in camera modal
   };
 
-  // Handle "Enter Fullscreen" in the prompt
+  // Handle "Enter Fullscreen" in the prompt (kept for backwards compatibility)
   const handleEnterFullscreen = async () => {
     setIsStarting(true);
     setFullscreenError(false);
@@ -147,42 +148,89 @@ export default function AssessmentInstructionsPage() {
     const success = await requestFullscreen();
     
     if (success) {
-      // Record fullscreen enabled event
       await recordProctorEvent("FULLSCREEN_ENABLED", { source: "mandatory_prompt" });
-      
-      // Store fullscreen state
       sessionStorage.setItem("fullscreenAccepted", "true");
-      
-      // Close fullscreen prompt and show camera prompt
       setShowFullscreenPrompt(false);
       setShowCameraPrompt(true);
       setIsStarting(false);
     } else {
-      // Fullscreen failed
       setFullscreenError(true);
       setIsStarting(false);
     }
   };
 
-  // Handle camera consent accepted
-  const handleCameraAccept = async (): Promise<boolean> => {
+  // Background upload reference photo (fire-and-forget with retry)
+  const uploadReferencePhotoBackground = useCallback((photo: string) => {
+    // Fire-and-forget upload with retry
+    const upload = async (retryCount = 0) => {
+      try {
+        const response = await fetch("/api/proctor/record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventType: "REFERENCE_PHOTO_CAPTURED",
+            timestamp: new Date().toISOString(),
+            assessmentId: id,
+            userId: email,
+            metadata: { source: "camera_modal" },
+            snapshotBase64: photo,
+          }),
+        });
+        
+        if (!response.ok && retryCount < 2) {
+          // Retry up to 2 times with delay
+          setTimeout(() => upload(retryCount + 1), 2000);
+        }
+      } catch (err) {
+        console.warn("[ReferencePhoto] Background upload failed:", err);
+        if (retryCount < 2) {
+          setTimeout(() => upload(retryCount + 1), 2000);
+        }
+      }
+    };
+    
+    // Start upload in background (don't await)
+    upload();
+  }, [id, email]);
+
+  // Handle camera consent accepted with reference photo, screen stream, and webcam stream
+  const handleCameraAccept = async (
+    referencePhoto: string, 
+    screenStream: MediaStream,
+    webcamStream: MediaStream
+  ): Promise<boolean> => {
     setIsStarting(true);
     setCameraError(null);
     
+    // Store camera consent and reference photo in session FIRST (instant)
+    sessionStorage.setItem("cameraProctorEnabled", "true");
+    sessionStorage.setItem("candidateReferencePhoto", referencePhoto);
+    sessionStorage.setItem("screenShareGranted", "true");
+    
+    // Store streams in global variables so take.tsx can access them
+    // (streams can't be stored in sessionStorage)
+    if (typeof window !== "undefined") {
+      (window as any).__screenStream = screenStream;
+      (window as any).__webcamStream = webcamStream;
+      console.log("[Instructions] Streams stored for live proctoring", {
+        hasScreenStream: !!screenStream,
+        hasWebcamStream: !!webcamStream,
+      });
+    }
+    
+    // Start background upload immediately (fire-and-forget)
+    uploadReferencePhotoBackground(referencePhoto);
+    
+    // Start camera (loads TensorFlow models) - this is the slow part
     const cameraStarted = await startCamera();
     
     if (cameraStarted) {
-      // Start candidate session (record startedAt in backend)
-      const sessionStarted = await startSession();
+      // Start candidate session in background (don't block navigation)
+      startSession().catch((err) => {
+        console.warn("[Session] Failed to record session start:", err);
+      });
       
-      if (!sessionStarted) {
-        console.warn("[Session] Failed to record session start, but continuing...");
-      }
-      
-      // Store camera consent in session
-      sessionStorage.setItem("cameraProctorEnabled", "true");
-      
-      // Navigate to assessment
+      // Navigate to assessment immediately
       setShowCameraPrompt(false);
       router.push(`/assessment/${id}/${token}/take`);
       return true;
@@ -191,27 +239,6 @@ export default function AssessmentInstructionsPage() {
       setIsStarting(false);
       return false;
     }
-  };
-
-  // Handle camera consent denied
-  const handleCameraDeny = async () => {
-    // Record camera denied event
-    await recordProctorEvent("CAMERA_DENIED", { source: "consent_modal" });
-    
-    // Store that camera was denied
-    sessionStorage.setItem("cameraProctorEnabled", "false");
-    
-    // Still allow exam to proceed (per policy - could be changed to block)
-    // Start candidate session
-    const sessionStarted = await startSession();
-    
-    if (!sessionStarted) {
-      console.warn("[Session] Failed to record session start, but continuing...");
-    }
-    
-    // Navigate to assessment (camera proctoring will be disabled)
-    setShowCameraPrompt(false);
-    router.push(`/assessment/${id}/${token}/take`);
   };
 
   // Handle fullscreen failure from prompt
@@ -355,7 +382,6 @@ export default function AssessmentInstructionsPage() {
       <CameraProctorModal
         isOpen={showCameraPrompt}
         onAccept={handleCameraAccept}
-        onDeny={handleCameraDeny}
         candidateName={name || undefined}
         isLoading={isStarting}
         cameraError={cameraError}
