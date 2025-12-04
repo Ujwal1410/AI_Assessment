@@ -121,6 +121,66 @@ const DOM_SIGNATURES: DomSignature[] = [
 ];
 
 // ============================================================================
+// Known Extension IDs for Direct Detection
+// ============================================================================
+
+interface KnownExtension {
+  id: string;
+  name: string;
+  category: ExtensionCategory;
+  // Some extensions expose web accessible resources we can check
+  testPaths: string[];
+}
+
+const KNOWN_EXTENSIONS: KnownExtension[] = [
+  // Screen Recorders (HARMFUL - should block)
+  {
+    id: "mmeijimgabbpbgpdklnllpncmdofkcpn",
+    name: "Screencastify",
+    category: "screen_recorder",
+    testPaths: ["images/icon16.png", "images/icon48.png", "manifest.json"],
+  },
+  {
+    id: "liecbddmkiiihnedobmlmillhodjkdmb",
+    name: "Loom",
+    category: "screen_recorder",
+    testPaths: ["images/icon16.png", "icon16.png", "manifest.json"],
+  },
+  {
+    id: "hniebljpgcogalllopnjokppmgbhaden",
+    name: "Awesome Screenshot",
+    category: "screen_recorder",
+    testPaths: ["images/icon16.png", "manifest.json"],
+  },
+  {
+    id: "alelhddbbhepgpmgidjdcjakblofbmce",
+    name: "Full Page Screen Capture",
+    category: "screen_recorder",
+    testPaths: ["images/icon16.png", "manifest.json"],
+  },
+  // Ad Blockers (NOT harmful - allow)
+  {
+    id: "gighmmpiobklfepjocnamgkkbiglidom",
+    name: "AdBlock",
+    category: "ad_blocker",
+    testPaths: ["icons/icon16.png", "adblock-icon-16.png", "manifest.json"],
+  },
+  {
+    id: "cjpalhdlnbpafiamejdnhcphjbkeiagm",
+    name: "uBlock Origin",
+    category: "ad_blocker",
+    testPaths: ["img/icon_16.png", "manifest.json"],
+  },
+  // Remote Desktop (HARMFUL - should block)
+  {
+    id: "gbchcmhmhahfdphkhkmpfmihenigjmpp",
+    name: "Chrome Remote Desktop",
+    category: "remote_desktop",
+    testPaths: ["icon16.png", "manifest.json"],
+  },
+];
+
+// ============================================================================
 // Hook Implementation
 // ============================================================================
 
@@ -296,6 +356,92 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
     return detected;
   }, []);
 
+  // Detect extensions by their known Chrome extension IDs
+  // This works by trying to load web-accessible resources from the extension
+  const detectByExtensionId = useCallback(async (): Promise<DetectedExtension[]> => {
+    const detected: DetectedExtension[] = [];
+    
+    if (typeof window === "undefined") return detected;
+    
+    // Function to check if an extension resource is accessible
+    const checkExtensionResource = async (extensionId: string, resourcePath: string): Promise<boolean> => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        const url = `chrome-extension://${extensionId}/${resourcePath}`;
+        
+        // Set a timeout to avoid hanging
+        const timeout = setTimeout(() => {
+          resolve(false);
+        }, 500);
+        
+        img.onload = () => {
+          clearTimeout(timeout);
+          resolve(true);
+        };
+        
+        img.onerror = () => {
+          clearTimeout(timeout);
+          resolve(false);
+        };
+        
+        img.src = url;
+      });
+    };
+    
+    // Alternative method using fetch (for non-image resources)
+    const checkExtensionFetch = async (extensionId: string, resourcePath: string): Promise<boolean> => {
+      return new Promise((resolve) => {
+        const url = `chrome-extension://${extensionId}/${resourcePath}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+          controller.abort();
+          resolve(false);
+        }, 500);
+        
+        fetch(url, { method: "HEAD", signal: controller.signal, mode: "no-cors" })
+          .then(() => {
+            clearTimeout(timeout);
+            // no-cors doesn't give us the actual response, but if it doesn't throw, extension might exist
+            resolve(true);
+          })
+          .catch(() => {
+            clearTimeout(timeout);
+            resolve(false);
+          });
+      });
+    };
+    
+    // Check each known extension
+    for (const ext of KNOWN_EXTENSIONS) {
+      let found = false;
+      
+      // Try each test path
+      for (const testPath of ext.testPaths) {
+        if (testPath.endsWith(".png") || testPath.endsWith(".jpg") || testPath.endsWith(".gif") || testPath.endsWith(".ico")) {
+          // Use image loading for image resources
+          found = await checkExtensionResource(ext.id, testPath);
+        } else {
+          // Use fetch for other resources
+          found = await checkExtensionFetch(ext.id, testPath);
+        }
+        
+        if (found) break;
+      }
+      
+      if (found) {
+        detected.push({
+          id: `ext_${ext.id}`,
+          category: ext.category,
+          signature: ext.id,
+          confidence: "high",
+          description: ext.name,
+        });
+      }
+    }
+    
+    return detected;
+  }, []);
+
   // Detect extensions by scanning for injected DOM elements dynamically
   const detectInjectedElements = useCallback((): DetectedExtension[] => {
     if (typeof document === "undefined") return [];
@@ -386,11 +532,12 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
     
     try {
       // Run all detections - NO MORE FAKE AD BLOCKER DETECTION
-      const [globalVars, domSignatures, injectedElements, remoteDesktop] = await Promise.all([
+      const [globalVars, domSignatures, injectedElements, remoteDesktop, extensionIds] = await Promise.all([
         Promise.resolve(detectGlobalVars()),
         Promise.resolve(detectDomSignatures()),
         Promise.resolve(detectInjectedElements()),
         detectRemoteDesktop(),
+        detectByExtensionId(),
       ]);
       
       // Check if this scan is still current
@@ -399,7 +546,7 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
       }
       
       // Combine results and deduplicate
-      const allExtensions = [...globalVars, ...domSignatures, ...injectedElements, ...remoteDesktop];
+      const allExtensions = [...globalVars, ...domSignatures, ...injectedElements, ...remoteDesktop, ...extensionIds];
       
       // Deduplicate by description (more user-friendly)
       const seen = new Set<string>();
@@ -443,7 +590,7 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
         setIsScanning(false);
       }
     }
-  }, [detectGlobalVars, detectDomSignatures, detectInjectedElements, detectRemoteDesktop]);
+  }, [detectGlobalVars, detectDomSignatures, detectInjectedElements, detectRemoteDesktop, detectByExtensionId]);
 
   // Report warning to backend
   const reportWarning = useCallback(async (assessmentId: string, userId: string): Promise<void> => {
