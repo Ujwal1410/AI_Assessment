@@ -27,6 +27,7 @@ export interface ExtensionScanResult {
   extensions: DetectedExtension[];
   hasHighRisk: boolean;
   hasMediumRisk: boolean;
+  hasAnyExtension: boolean; // Block if ANY extension detected
   scanTime: number;
 }
 
@@ -93,17 +94,29 @@ interface DomSignature {
 
 const DOM_SIGNATURES: DomSignature[] = [
   // Screen recorder overlays
-  { selector: ".obs-control", category: "screen_recorder", confidence: "high", description: "OBS Control Overlay" },
-  { selector: "#screencapture-overlay", category: "screen_recorder", confidence: "high", description: "Screen Capture Overlay" },
-  { selector: "[data-screencastify]", category: "screen_recorder", confidence: "high", description: "Screencastify Element" },
-  { selector: ".loom-container", category: "screen_recorder", confidence: "high", description: "Loom Container" },
+  { selector: ".obs-control", category: "screen_recorder", confidence: "high", description: "OBS Browser Plugin" },
+  { selector: "#screencapture-overlay", category: "screen_recorder", confidence: "high", description: "Screen Capture Extension" },
+  { selector: "[data-screencastify]", category: "screen_recorder", confidence: "high", description: "Screencastify" },
+  { selector: ".loom-container", category: "screen_recorder", confidence: "high", description: "Loom" },
   
-  // Extension injected elements
-  { selector: "[data-grammarly-shadow-root]", category: "unknown", confidence: "low", description: "Grammarly" },
-  { selector: "#lastpass-icon", category: "unknown", confidence: "low", description: "LastPass" },
+  // Common browser extensions that inject DOM elements
+  { selector: "[data-grammarly-shadow-root]", category: "unknown", confidence: "high", description: "Grammarly Extension" },
+  { selector: "grammarly-desktop-integration", category: "unknown", confidence: "high", description: "Grammarly Extension" },
+  { selector: "#lastpass-icon", category: "unknown", confidence: "high", description: "LastPass Extension" },
+  { selector: "[data-lastpass-icon-root]", category: "unknown", confidence: "high", description: "LastPass Extension" },
+  { selector: ".dashlane-icon", category: "unknown", confidence: "high", description: "Dashlane Extension" },
+  { selector: "[data-1p-extension]", category: "unknown", confidence: "high", description: "1Password Extension" },
+  { selector: "#bitwarden-wrapper", category: "unknown", confidence: "high", description: "Bitwarden Extension" },
+  { selector: "[data-honey-container]", category: "unknown", confidence: "high", description: "Honey Extension" },
+  { selector: "#honey-button", category: "unknown", confidence: "high", description: "Honey Extension" },
+  { selector: "[data-rakuten]", category: "unknown", confidence: "high", description: "Rakuten Extension" },
+  { selector: ".mcafee-icon", category: "unknown", confidence: "high", description: "McAfee Extension" },
+  { selector: "[data-translate-extension]", category: "unknown", confidence: "high", description: "Translate Extension" },
+  { selector: ".dark-reader", category: "unknown", confidence: "high", description: "Dark Reader Extension" },
+  { selector: "[data-darkreader]", category: "unknown", confidence: "high", description: "Dark Reader Extension" },
   
   // Automation markers
-  { selector: "[webdriver]", category: "automation", confidence: "high", description: "WebDriver Attribute" },
+  { selector: "[webdriver]", category: "automation", confidence: "high", description: "Browser Automation Detected" },
 ];
 
 // ============================================================================
@@ -428,6 +441,7 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
         hasMediumRisk: uniqueExtensions.some(
           (e) => e.confidence === "medium" || e.confidence === "high"
         ),
+        hasAnyExtension: uniqueExtensions.length > 0, // Block if ANY extension detected
         scanTime,
       };
       

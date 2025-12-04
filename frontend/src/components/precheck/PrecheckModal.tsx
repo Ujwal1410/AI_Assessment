@@ -161,7 +161,7 @@ export function PrecheckModal({
     }
   }, [currentStep, onComplete]);
 
-  // Setup audio frequency visualization for microphone
+  // Setup clean audio visualization for microphone
   useEffect(() => {
     if (currentCheckType === "microphone" && microphoneStream) {
       const setupAudioVisualization = async () => {
@@ -171,8 +171,8 @@ export function PrecheckModal({
           
           const source = audioContext.createMediaStreamSource(microphoneStream);
           const analyser = audioContext.createAnalyser();
-          analyser.fftSize = 256;
-          analyser.smoothingTimeConstant = 0.8;
+          analyser.fftSize = 64; // Fewer bars for cleaner look
+          analyser.smoothingTimeConstant = 0.85;
           source.connect(analyser);
           analyserRef.current = analyser;
 
@@ -184,6 +184,9 @@ export function PrecheckModal({
 
           const bufferLength = analyser.frequencyBinCount;
           const dataArray = new Uint8Array(bufferLength);
+          const barCount = 24; // Fixed number of bars for consistent look
+          const barGap = 4;
+          const barWidth = (canvas.width - (barCount - 1) * barGap) / barCount;
 
           const draw = () => {
             if (!analyserRef.current || !canvas) return;
@@ -191,24 +194,53 @@ export function PrecheckModal({
             animationFrameRef.current = requestAnimationFrame(draw);
             analyserRef.current.getByteFrequencyData(dataArray);
 
+            // Clear with background
             ctx.fillStyle = "#f8fafc";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw threshold line
+            const thresholdY = canvas.height * 0.6;
+            ctx.strokeStyle = "#e2e8f0";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(0, thresholdY);
+            ctx.lineTo(canvas.width, thresholdY);
+            ctx.stroke();
+            ctx.setLineDash([]);
 
-            const barWidth = canvas.width / bufferLength * 2.5;
-            let barHeight;
-            let x = 0;
-
-            for (let i = 0; i < bufferLength; i++) {
-              barHeight = (dataArray[i] / 255) * canvas.height;
+            // Calculate average for each bar group
+            const samplesPerBar = Math.floor(bufferLength / barCount);
+            
+            for (let i = 0; i < barCount; i++) {
+              // Average the frequency data for this bar
+              let sum = 0;
+              for (let j = 0; j < samplesPerBar; j++) {
+                sum += dataArray[i * samplesPerBar + j];
+              }
+              const avg = sum / samplesPerBar;
               
-              const gradient = ctx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
-              gradient.addColorStop(0, "#10b981");
-              gradient.addColorStop(1, "#34d399");
+              // Calculate bar height with minimum height
+              const normalizedHeight = avg / 255;
+              const barHeight = Math.max(4, normalizedHeight * canvas.height * 0.9);
               
-              ctx.fillStyle = gradient;
-              ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+              const x = i * (barWidth + barGap);
+              const y = canvas.height - barHeight;
               
-              x += barWidth + 1;
+              // Color based on intensity
+              const intensity = normalizedHeight;
+              if (intensity > 0.4) {
+                ctx.fillStyle = "#10b981"; // Green - good level
+              } else if (intensity > 0.15) {
+                ctx.fillStyle = "#fbbf24"; // Yellow - moderate
+              } else {
+                ctx.fillStyle = "#cbd5e1"; // Gray - low
+              }
+              
+              // Draw rounded bar
+              ctx.beginPath();
+              ctx.roundRect(x, y, barWidth, barHeight, 2);
+              ctx.fill();
             }
           };
 
@@ -230,7 +262,8 @@ export function PrecheckModal({
 
   if (!isOpen) return null;
 
-  const isBlockedByExtensions = extensionScanResult?.hasHighRisk ?? false;
+  // Block if ANY extension is detected (not just high risk)
+  const isBlockedByExtensions = extensionScanResult?.hasAnyExtension ?? false;
   const canProceed = currentCheck?.status === "passed" && 
     (currentCheckType !== "microphone" || thresholdReached) &&
     (currentCheckType !== "browser" || !isBlockedByExtensions);
@@ -427,32 +460,52 @@ export function PrecheckModal({
                 </div>
               )}
 
-              {/* Extension Warnings */}
+              {/* Extension Warnings - Block ANY extension */}
               {extensionScanResult && extensionScanResult.extensions.length > 0 && (
                 <div
                   style={{
                     padding: "1rem",
-                    backgroundColor: isBlockedByExtensions ? "#fef2f2" : "#fffbeb",
-                    border: `1px solid ${isBlockedByExtensions ? "#fecaca" : "#fcd34d"}`,
+                    backgroundColor: "#fef2f2",
+                    border: "1px solid #fecaca",
                     borderRadius: "0.75rem",
                     marginBottom: "1rem",
                   }}
                 >
-                  <p style={{ fontWeight: 600, marginBottom: "0.5rem", color: isBlockedByExtensions ? "#dc2626" : "#92400e", margin: 0 }}>
-                    {isBlockedByExtensions ? "⚠️ Extensions Must Be Disabled" : "ℹ️ Extensions Detected"}
+                  <p style={{ fontWeight: 600, marginBottom: "0.5rem", color: "#dc2626", margin: 0 }}>
+                    ⚠️ Browser Extensions Detected
                   </p>
-                  <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.25rem", fontSize: "0.875rem", color: isBlockedByExtensions ? "#dc2626" : "#92400e" }}>
+                  <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.25rem", fontSize: "0.875rem", color: "#dc2626" }}>
                     {extensionScanResult.extensions.map((ext, i) => (
                       <li key={i} style={{ marginBottom: "0.25rem" }}>
                         {ext.description}
                       </li>
                     ))}
                   </ul>
-                  {isBlockedByExtensions && (
-                    <p style={{ marginTop: "0.75rem", marginBottom: 0, fontSize: "0.875rem", color: "#dc2626" }}>
-                      Please disable these extensions and refresh the page.
-                    </p>
-                  )}
+                  <p style={{ marginTop: "0.75rem", marginBottom: "0.75rem", fontSize: "0.875rem", color: "#dc2626" }}>
+                    Please disable all browser extensions, then click &quot;Re-scan&quot; to continue.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      setIsChecking(true);
+                      await scanExtensions();
+                      setIsChecking(false);
+                    }}
+                    disabled={isChecking || isExtensionScanning}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      backgroundColor: "#dc2626",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "0.5rem",
+                      fontSize: "0.875rem",
+                      fontWeight: 600,
+                      cursor: isChecking || isExtensionScanning ? "not-allowed" : "pointer",
+                      opacity: isChecking || isExtensionScanning ? 0.6 : 1,
+                    }}
+                  >
+                    {isExtensionScanning ? "Scanning..." : "🔄 Re-scan for Extensions"}
+                  </button>
                 </div>
               )}
 
@@ -508,9 +561,36 @@ export function PrecheckModal({
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   </div>
-                  <p style={{ color: "#065f46", fontWeight: 600, fontSize: "1rem", margin: 0 }}>
-                    Internet connection verified
+                  <p style={{ color: "#065f46", fontWeight: 600, fontSize: "1rem", margin: 0, marginBottom: "1rem" }}>
+                    Internet Connection Verified
                   </p>
+                  
+                  {/* Speed Display */}
+                  {networkMetrics && (
+                    <div style={{ 
+                      display: "flex", 
+                      justifyContent: "center", 
+                      gap: "1.5rem",
+                      padding: "0.75rem",
+                      backgroundColor: "#ffffff",
+                      borderRadius: "0.5rem",
+                      border: "1px solid #d1fae5",
+                    }}>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#059669" }}>
+                          ↓ {networkMetrics.downloadSpeedMbps}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>Mbps Down</div>
+                      </div>
+                      <div style={{ width: "1px", backgroundColor: "#d1fae5" }} />
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#059669" }}>
+                          ↑ {networkMetrics.uploadSpeedMbps || "N/A"}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>Mbps Up</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : currentCheck?.status === "running" ? (
                 <div style={{
@@ -528,7 +608,7 @@ export function PrecheckModal({
                     animation: "spin 1s linear infinite",
                     margin: "0 auto 1rem",
                   }} />
-                  <p style={{ color: "#64748b", margin: 0 }}>Testing connection...</p>
+                  <p style={{ color: "#64748b", margin: 0 }}>{currentCheck.message || "Testing connection..."}</p>
                 </div>
               ) : currentCheck?.status === "failed" ? (
                 <div style={{
@@ -554,7 +634,7 @@ export function PrecheckModal({
                     {STEP_ICONS[currentCheckType]}
                   </div>
                   <p style={{ color: "#64748b", margin: 0 }}>
-                    Click to verify your internet connection
+                    Click to test your internet speed
                   </p>
                 </div>
               )}
@@ -580,7 +660,7 @@ export function PrecheckModal({
                     gap: "0.5rem",
                   }}
                 >
-                  📶 {currentCheck?.status === "failed" ? "Retry Connection" : "Check Connection"}
+                  📶 {currentCheck?.status === "failed" ? "Retry Connection" : "Test Speed"}
                 </button>
               )}
             </div>

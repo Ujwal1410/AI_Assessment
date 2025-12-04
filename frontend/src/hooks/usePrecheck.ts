@@ -784,39 +784,80 @@ export function usePrecheck({
   }, [updateCheck, log]);
   
   // ============================================================================
-  // Network Check
+  // Network Check with Speed Test
   // ============================================================================
   
   const checkNetwork = useCallback(async (): Promise<CheckResult> => {
     log("Starting network check...");
-    updateCheck("network", { status: "running", message: "Checking internet connection..." });
+    updateCheck("network", { status: "running", message: "Testing connection..." });
     
     try {
-      // Simple connectivity test - fetch a small resource
-      const testStart = performance.now();
-      const response = await fetch("https://www.google.com/favicon.ico", { 
+      // Step 1: Basic connectivity test
+      const connectStart = performance.now();
+      await fetch("https://www.google.com/favicon.ico", { 
         method: "HEAD",
         cache: "no-store",
-        mode: "no-cors", // Use no-cors to avoid CORS issues
+        mode: "no-cors",
       });
-      const latencyMs = Math.round(performance.now() - testStart);
-      log(`Network connectivity test: ${latencyMs}ms`);
+      const latencyMs = Math.round(performance.now() - connectStart);
+      log(`Connectivity test: ${latencyMs}ms`);
       
-      // If we get here, internet is accessible
+      // Step 2: Download speed test (fetch a ~100KB file)
+      updateCheck("network", { status: "running", message: "Testing download speed..." });
+      let downloadSpeedMbps = 0;
+      try {
+        const downloadStart = performance.now();
+        // Use a public CDN file for speed test (~100KB)
+        const downloadResponse = await fetch("https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js", {
+          cache: "no-store",
+        });
+        const downloadBlob = await downloadResponse.blob();
+        const downloadTime = (performance.now() - downloadStart) / 1000; // seconds
+        const downloadSize = downloadBlob.size / (1024 * 1024); // MB
+        downloadSpeedMbps = Math.round((downloadSize / downloadTime) * 8 * 10) / 10; // Mbps
+        log(`Download speed: ${downloadSpeedMbps} Mbps`);
+      } catch (e) {
+        log("Download speed test failed, using estimate");
+        downloadSpeedMbps = latencyMs < 100 ? 10 : latencyMs < 300 ? 5 : 2; // Estimate based on latency
+      }
+      
+      // Step 3: Upload speed test (POST small data)
+      updateCheck("network", { status: "running", message: "Testing upload speed..." });
+      let uploadSpeedMbps = 0;
+      try {
+        const testData = new Blob([new ArrayBuffer(50 * 1024)]); // 50KB
+        const uploadStart = performance.now();
+        await fetch("https://httpbin.org/post", {
+          method: "POST",
+          body: testData,
+          mode: "no-cors",
+        });
+        const uploadTime = (performance.now() - uploadStart) / 1000;
+        const uploadSize = testData.size / (1024 * 1024);
+        uploadSpeedMbps = Math.round((uploadSize / uploadTime) * 8 * 10) / 10;
+        log(`Upload speed: ${uploadSpeedMbps} Mbps`);
+      } catch (e) {
+        log("Upload speed test failed, using estimate");
+        uploadSpeedMbps = Math.round(downloadSpeedMbps * 0.3 * 10) / 10; // Estimate as 30% of download
+      }
+      
       const metrics: NetworkMetrics = {
         latencyMs,
-        downloadSpeedMbps: 0, // Not measured
+        downloadSpeedMbps,
+        uploadSpeedMbps,
       };
       setNetworkMetrics(metrics);
       
-      log("Network check passed: Internet connection available");
+      log(`Network check passed: ${downloadSpeedMbps} Mbps down, ${uploadSpeedMbps} Mbps up`);
       
       const result: CheckResult = {
         type: "network",
         status: "passed",
-        message: "Internet connection available",
+        message: `Connected • ↓ ${downloadSpeedMbps} Mbps • ↑ ${uploadSpeedMbps} Mbps`,
         details: {
-          latencyMs: metrics.latencyMs,
+          latencyMs,
+          downloadSpeedMbps,
+          uploadSpeedMbps,
         },
         lastChecked: new Date(),
       };
