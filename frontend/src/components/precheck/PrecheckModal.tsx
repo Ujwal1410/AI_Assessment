@@ -406,7 +406,7 @@ export function PrecheckModal({
           {/* Browser Check */}
           {currentCheckType === "browser" && (
             <div>
-              {currentCheck?.status === "passed" && !isBlockedByExtensions ? (
+              {currentCheck?.status === "passed" && !hasHarmfulExtension ? (
                 <div style={{
                   backgroundColor: "#f0fdf4",
                   borderRadius: "0.75rem",
