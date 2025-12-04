@@ -295,106 +295,84 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
     return detected;
   }, []);
 
-  // Detect ad blockers (multiple methods for better detection)
-  const detectAdBlocker = useCallback(async (): Promise<DetectedExtension | null> => {
-    if (typeof document === "undefined" || typeof window === "undefined") return null;
+  // Detect extensions by scanning for injected DOM elements dynamically
+  const detectInjectedElements = useCallback((): DetectedExtension[] => {
+    if (typeof document === "undefined") return [];
     
-    // Method 1: Check for common ad blocker global variables
-    const adBlockerGlobals = [
-      "AdBlock",
-      "adblock", 
-      "__adblockplus__",
-      "AdBlockPlus",
-      "uBlock",
-      "uBlockOrigin",
-      "__ublock__",
+    const detected: DetectedExtension[] = [];
+    
+    // Get all elements and check for extension-injected attributes/elements
+    const allElements = document.querySelectorAll("*");
+    const extensionPatterns: { pattern: RegExp; description: string }[] = [
+      { pattern: /^grammarly/i, description: "Grammarly Extension" },
+      { pattern: /^lastpass/i, description: "LastPass Extension" },
+      { pattern: /^bitwarden/i, description: "Bitwarden Extension" },
+      { pattern: /^1password/i, description: "1Password Extension" },
+      { pattern: /^dashlane/i, description: "Dashlane Extension" },
+      { pattern: /^honey/i, description: "Honey Extension" },
+      { pattern: /^rakuten/i, description: "Rakuten Extension" },
+      { pattern: /^dark-?reader/i, description: "Dark Reader Extension" },
+      { pattern: /^ublock/i, description: "uBlock Extension" },
+      { pattern: /^adblock/i, description: "AdBlock Extension" },
     ];
     
-    for (const global of adBlockerGlobals) {
-      if ((window as any)[global]) {
-        return {
-          id: "adblocker_global",
-          category: "ad_blocker",
-          signature: `window.${global}`,
-          confidence: "medium",
-          description: "Ad Blocker Extension",
-        };
-      }
-    }
+    const detectedIds = new Set<string>();
     
-    // Method 2: Bait element approach (more reliable with visible element)
-    return new Promise((resolve) => {
-      // Create multiple bait elements with different signatures
-      const baits: HTMLElement[] = [];
+    allElements.forEach((el) => {
+      const tagName = el.tagName.toLowerCase();
+      const id = el.id?.toLowerCase() || "";
+      const className = el.className?.toString?.()?.toLowerCase() || "";
       
-      // Bait 1: Classic ad div
-      const bait1 = document.createElement("div");
-      bait1.className = "adsbox ad-banner ad-placeholder pub_300x250 textAd banner-ad";
-      bait1.setAttribute("id", "ad-container-test");
-      bait1.innerHTML = "&nbsp;";
-      bait1.style.cssText = "position:fixed;top:-1000px;left:-1000px;width:300px;height:250px;background:#fff;";
-      baits.push(bait1);
-      
-      // Bait 2: Google ad style
-      const bait2 = document.createElement("ins");
-      bait2.className = "adsbygoogle adsense ad-unit";
-      bait2.style.cssText = "position:fixed;top:-1000px;left:-1000px;width:300px;height:250px;display:block;";
-      baits.push(bait2);
-      
-      // Bait 3: Banner style
-      const bait3 = document.createElement("div");
-      bait3.className = "ad_banner ad-leaderboard sponsor-ad";
-      bait3.setAttribute("data-ad-slot", "test");
-      bait3.innerHTML = "<span>Advertisement</span>";
-      bait3.style.cssText = "position:fixed;top:-1000px;left:-1000px;width:728px;height:90px;";
-      baits.push(bait3);
-      
-      // Add all baits to body
-      baits.forEach(b => document.body.appendChild(b));
-      
-      // Check after a delay (ad blockers need time to process)
-      setTimeout(() => {
-        let isBlocked = false;
-        
-        for (const bait of baits) {
-          const styles = window.getComputedStyle(bait);
-          const rect = bait.getBoundingClientRect();
-          
-          if (
-            styles.display === "none" ||
-            styles.visibility === "hidden" ||
-            styles.opacity === "0" ||
-            bait.offsetHeight === 0 ||
-            bait.offsetWidth === 0 ||
-            rect.height === 0 ||
-            rect.width === 0 ||
-            bait.offsetParent === null
-          ) {
-            isBlocked = true;
-            break;
+      // Check for custom elements (extensions often inject custom tags)
+      if (tagName.includes("-") && !tagName.startsWith("data-")) {
+        for (const { pattern, description } of extensionPatterns) {
+          if (pattern.test(tagName) && !detectedIds.has(description)) {
+            detectedIds.add(description);
+            detected.push({
+              id: `injected_${tagName}`,
+              category: "unknown",
+              signature: tagName,
+              confidence: "high",
+              description,
+            });
           }
         }
-        
-        // Clean up
-        baits.forEach(bait => {
-          if (bait.parentNode) {
-            bait.parentNode.removeChild(bait);
-          }
-        });
-        
-        if (isBlocked) {
-          resolve({
-            id: "adblocker_detected",
-            category: "ad_blocker",
-            signature: "Ad element blocked/hidden",
-            confidence: "medium",
-            description: "Ad Blocker Extension",
+      }
+      
+      // Check IDs and classes
+      for (const { pattern, description } of extensionPatterns) {
+        if ((pattern.test(id) || pattern.test(className)) && !detectedIds.has(description)) {
+          detectedIds.add(description);
+          detected.push({
+            id: `injected_${id || className}`,
+            category: "unknown",
+            signature: id || className,
+            confidence: "high",
+            description,
           });
-        } else {
-          resolve(null);
         }
-      }, 200); // Increased timeout for ad blocker to process
+      }
+      
+      // Check for data attributes commonly used by extensions
+      const attrs = el.attributes;
+      for (let i = 0; i < attrs.length; i++) {
+        const attrName = attrs[i].name.toLowerCase();
+        for (const { pattern, description } of extensionPatterns) {
+          if (pattern.test(attrName) && !detectedIds.has(description)) {
+            detectedIds.add(description);
+            detected.push({
+              id: `attr_${attrName}`,
+              category: "unknown",
+              signature: attrName,
+              confidence: "high",
+              description,
+            });
+          }
+        }
+      }
     });
+    
+    return detected;
   }, []);
 
   // Main scan function
@@ -406,11 +384,11 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
     const startTime = performance.now();
     
     try {
-      // Run all detections in parallel
-      const [globalVars, domSignatures, adBlocker, remoteDesktop] = await Promise.all([
+      // Run all detections - NO MORE FAKE AD BLOCKER DETECTION
+      const [globalVars, domSignatures, injectedElements, remoteDesktop] = await Promise.all([
         Promise.resolve(detectGlobalVars()),
         Promise.resolve(detectDomSignatures()),
-        detectAdBlocker(),
+        Promise.resolve(detectInjectedElements()),
         detectRemoteDesktop(),
       ]);
       
@@ -420,15 +398,15 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
       }
       
       // Combine results and deduplicate
-      const allExtensions = [...globalVars, ...domSignatures, ...remoteDesktop];
-      if (adBlocker) {
-        allExtensions.push(adBlocker);
-      }
+      const allExtensions = [...globalVars, ...domSignatures, ...injectedElements, ...remoteDesktop];
       
-      // Deduplicate by id
-      const uniqueExtensions = allExtensions.filter(
-        (ext, index, self) => index === self.findIndex((e) => e.id === ext.id)
-      );
+      // Deduplicate by description (more user-friendly)
+      const seen = new Set<string>();
+      const uniqueExtensions = allExtensions.filter((ext) => {
+        if (seen.has(ext.description)) return false;
+        seen.add(ext.description);
+        return true;
+      });
       
       const scanTime = performance.now() - startTime;
       
@@ -441,7 +419,7 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
         hasMediumRisk: uniqueExtensions.some(
           (e) => e.confidence === "medium" || e.confidence === "high"
         ),
-        hasAnyExtension: uniqueExtensions.length > 0, // Block if ANY extension detected
+        hasAnyExtension: uniqueExtensions.length > 0,
         scanTime,
       };
       
@@ -458,7 +436,7 @@ export function usePrecheckExtensions(): UsePrecheckExtensionsReturn {
         setIsScanning(false);
       }
     }
-  }, [detectGlobalVars, detectDomSignatures, detectAdBlocker]);
+  }, [detectGlobalVars, detectDomSignatures, detectInjectedElements, detectRemoteDesktop]);
 
   // Report warning to backend
   const reportWarning = useCallback(async (assessmentId: string, userId: string): Promise<void> => {
