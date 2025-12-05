@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useFaceDetection, FaceDetectionResult } from "../../hooks/useFaceDetection";
 
 interface CameraProctorModalProps {
   isOpen: boolean;
@@ -38,6 +39,11 @@ export function CameraProctorModal({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewStreamRef = useRef<MediaStream | null>(null);
   
+  // Face detection states
+  const [faceResult, setFaceResult] = useState<FaceDetectionResult | null>(null);
+  const [isAnalyzingFace, setIsAnalyzingFace] = useState(false);
+  const { isModelLoading, loadModel, detectFacesFromDataUrl } = useFaceDetection();
+  
   // Step 2 states (Screen Share)
   const [isRequestingScreen, setIsRequestingScreen] = useState(false);
   const [screenShareGranted, setScreenShareGranted] = useState(false);
@@ -67,6 +73,7 @@ export function CameraProctorModal({
       setIsCameraLoading(false);
       setCurrentStep(1);
       setCapturedPhoto(null);
+      setFaceResult(null);
       setConsentChecked(false);
       setScreenShareGranted(false);
       setIsFullscreen(false);
@@ -118,6 +125,9 @@ export function CameraProctorModal({
       setIsCameraLoading(true);
       setLocalError(null);
       
+      // Start loading face detection model in background
+      loadModel().catch(console.error);
+      
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
         audio: true, // Include audio for proctoring
@@ -135,12 +145,14 @@ export function CameraProctorModal({
     } finally {
       setIsCameraLoading(false);
     }
-  }, []);
+  }, [loadModel]);
 
-  const handleCapturePhoto = useCallback(() => {
+  const handleCapturePhoto = useCallback(async () => {
     if (!previewVideoRef.current || !canvasRef.current || !cameraReady) return;
     
     setIsCapturing(true);
+    setFaceResult(null);
+    setLocalError(null);
     
     const video = previewVideoRef.current;
     const canvas = canvasRef.current;
@@ -175,20 +187,44 @@ export function CameraProctorModal({
     
     const photoData = canvas.toDataURL("image/jpeg", 0.6);
     setCapturedPhoto(photoData);
-    sessionStorage.setItem("candidateReferencePhoto", photoData);
     setIsCapturing(false);
-  }, [cameraReady]);
+    
+    // Analyze face in captured photo
+    setIsAnalyzingFace(true);
+    try {
+      const result = await detectFacesFromDataUrl(photoData);
+      setFaceResult(result);
+      
+      if (result.isValid) {
+        // Only save to session storage if face is valid
+        sessionStorage.setItem("candidateReferencePhoto", photoData);
+      }
+    } catch (error) {
+      console.error("Face detection error:", error);
+      setFaceResult({
+        faceCount: 0,
+        status: "no_face",
+        confidence: 0,
+        message: "Face detection failed. Please try again.",
+        isValid: false,
+      });
+    } finally {
+      setIsAnalyzingFace(false);
+    }
+  }, [cameraReady, detectFacesFromDataUrl]);
 
   const handleRetakePhoto = useCallback(() => {
     setCapturedPhoto(null);
+    setFaceResult(null);
+    setLocalError(null);
     sessionStorage.removeItem("candidateReferencePhoto");
   }, []);
 
   const handleNextToScreenShare = useCallback(() => {
-    if (capturedPhoto && consentChecked) {
+    if (capturedPhoto && consentChecked && faceResult?.isValid) {
       setCurrentStep(2);
     }
-  }, [capturedPhoto, consentChecked]);
+  }, [capturedPhoto, consentChecked, faceResult]);
 
   const handleRequestScreenShare = useCallback(async () => {
     setIsRequestingScreen(true);
@@ -360,7 +396,21 @@ export function CameraProctorModal({
               </div>
             </div>
 
-            <div style={{ marginBottom: "0.75rem", borderRadius: "0.5rem", overflow: "hidden", backgroundColor: "#000", aspectRatio: "16/10", position: "relative", border: capturedPhoto ? "2px solid #10b981" : "2px solid #e2e8f0" }}>
+            <div style={{ 
+              marginBottom: "0.75rem", 
+              borderRadius: "0.5rem", 
+              overflow: "hidden", 
+              backgroundColor: "#000", 
+              aspectRatio: "16/10", 
+              position: "relative", 
+              border: capturedPhoto 
+                ? faceResult?.isValid 
+                  ? "2px solid #10b981" 
+                  : faceResult 
+                    ? "2px solid #ef4444" 
+                    : "2px solid #f59e0b"
+                : "2px solid #e2e8f0" 
+            }}>
               {isCameraLoading && (
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", backgroundColor: "#1e293b", zIndex: 1 }}>
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ animation: "spin 1s linear infinite" }}>
@@ -374,20 +424,124 @@ export function CameraProctorModal({
               ) : (
                 <video ref={previewVideoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)", display: cameraReady ? "block" : "none" }} />
               )}
-              {capturedPhoto && (
-                <div style={{ position: "absolute", top: "0.75rem", left: "0.75rem", backgroundColor: "#10b981", color: "#fff", padding: "0.375rem 0.75rem", borderRadius: "1rem", fontSize: "0.75rem", fontWeight: 600 }}>
-                  ✓ Photo Captured
+              
+              {/* Model Loading Indicator */}
+              {isModelLoading && !capturedPhoto && (
+                <div style={{ position: "absolute", bottom: "0.5rem", left: "0.5rem", backgroundColor: "rgba(0,0,0,0.7)", color: "#fff", padding: "0.25rem 0.5rem", borderRadius: "0.25rem", fontSize: "0.625rem" }}>
+                  Loading face detection...
+                </div>
+              )}
+              
+              {/* Analyzing Face Overlay */}
+              {isAnalyzingFace && capturedPhoto && (
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.6)", zIndex: 2 }}>
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" style={{ animation: "spin 1s linear infinite" }}>
+                    <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
+                  </svg>
+                  <p style={{ color: "#fff", marginTop: "0.5rem", fontSize: "0.875rem", fontWeight: 500 }}>Analyzing face...</p>
+                </div>
+              )}
+              
+              {/* Face Detection Badge */}
+              {capturedPhoto && !isAnalyzingFace && faceResult && (
+                <div style={{ 
+                  position: "absolute", 
+                  top: "0.75rem", 
+                  left: "0.75rem", 
+                  backgroundColor: faceResult.isValid ? "#10b981" : "#ef4444", 
+                  color: "#fff", 
+                  padding: "0.375rem 0.75rem", 
+                  borderRadius: "1rem", 
+                  fontSize: "0.75rem", 
+                  fontWeight: 600 
+                }}>
+                  {faceResult.isValid ? "✓ Face Verified" : faceResult.status === "multiple_faces" ? "⚠ Multiple Faces" : "✗ No Face Detected"}
                 </div>
               )}
             </div>
+            
+            {/* Face Detection Result Message */}
+            {capturedPhoto && !isAnalyzingFace && faceResult && !faceResult.isValid && (
+              <div style={{ 
+                marginBottom: "0.75rem", 
+                padding: "0.625rem", 
+                backgroundColor: faceResult.status === "multiple_faces" ? "#fef3c7" : "#fef2f2", 
+                border: `1px solid ${faceResult.status === "multiple_faces" ? "#fcd34d" : "#fecaca"}`, 
+                borderRadius: "0.5rem",
+                textAlign: "center"
+              }}>
+                <p style={{ 
+                  margin: 0, 
+                  color: faceResult.status === "multiple_faces" ? "#92400e" : "#dc2626", 
+                  fontSize: "0.8125rem", 
+                  fontWeight: 500 
+                }}>
+                  {faceResult.status === "multiple_faces" ? "👥 " : "😕 "}
+                  {faceResult.message}
+                </p>
+                <p style={{ margin: "0.25rem 0 0", color: "#64748b", fontSize: "0.75rem" }}>
+                  Please retake the photo
+                </p>
+              </div>
+            )}
+            
+            {/* Face Detection Success Message */}
+            {capturedPhoto && !isAnalyzingFace && faceResult?.isValid && (
+              <div style={{ 
+                marginBottom: "0.75rem", 
+                padding: "0.625rem", 
+                backgroundColor: "#f0fdf4", 
+                border: "1px solid #86efac", 
+                borderRadius: "0.5rem",
+                textAlign: "center"
+              }}>
+                <p style={{ margin: 0, color: "#16a34a", fontSize: "0.8125rem", fontWeight: 500 }}>
+                  ✅ {faceResult.message}
+                </p>
+                <p style={{ margin: "0.25rem 0 0", color: "#22c55e", fontSize: "0.75rem" }}>
+                  This photo will be used as your reference for proctoring
+                </p>
+              </div>
+            )}
 
             <div style={{ marginBottom: "0.75rem" }}>
               {!capturedPhoto ? (
-                <button type="button" onClick={handleCapturePhoto} disabled={!cameraReady || isCapturing} style={{ width: "100%", padding: "0.625rem", backgroundColor: cameraReady ? "#3b82f6" : "#94a3b8", color: "#fff", border: "none", borderRadius: "0.375rem", fontSize: "0.875rem", fontWeight: 600, cursor: cameraReady ? "pointer" : "not-allowed" }}>
-                  {isCapturing ? "Capturing..." : "📸 Capture Photo"}
+                <button 
+                  type="button" 
+                  onClick={handleCapturePhoto} 
+                  disabled={!cameraReady || isCapturing || isModelLoading} 
+                  style={{ 
+                    width: "100%", 
+                    padding: "0.625rem", 
+                    backgroundColor: cameraReady && !isModelLoading ? "#3b82f6" : "#94a3b8", 
+                    color: "#fff", 
+                    border: "none", 
+                    borderRadius: "0.375rem", 
+                    fontSize: "0.875rem", 
+                    fontWeight: 600, 
+                    cursor: cameraReady && !isModelLoading ? "pointer" : "not-allowed" 
+                  }}
+                >
+                  {isCapturing ? "Capturing..." : isModelLoading ? "Loading..." : "📸 Capture Photo"}
                 </button>
               ) : (
-                <button type="button" onClick={handleRetakePhoto} style={{ width: "100%", padding: "0.5rem", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0", borderRadius: "0.375rem", fontSize: "0.8125rem", fontWeight: 500, cursor: "pointer" }}>
+                <button 
+                  type="button" 
+                  onClick={handleRetakePhoto} 
+                  disabled={isAnalyzingFace}
+                  style={{ 
+                    width: "100%", 
+                    padding: "0.5rem", 
+                    backgroundColor: "#f1f5f9", 
+                    color: "#475569", 
+                    border: "1px solid #e2e8f0", 
+                    borderRadius: "0.375rem", 
+                    fontSize: "0.8125rem", 
+                    fontWeight: 500, 
+                    cursor: isAnalyzingFace ? "not-allowed" : "pointer",
+                    opacity: isAnalyzingFace ? 0.6 : 1
+                  }}
+                >
                   🔄 Retake Photo
                 </button>
               )}
@@ -400,7 +554,22 @@ export function CameraProctorModal({
               </span>
             </label>
 
-            <button type="button" onClick={handleNextToScreenShare} disabled={!capturedPhoto || !consentChecked} style={{ width: "100%", padding: "0.625rem", backgroundColor: capturedPhoto && consentChecked ? "#10b981" : "#94a3b8", color: "#fff", border: "none", borderRadius: "0.375rem", fontSize: "0.875rem", fontWeight: 600, cursor: capturedPhoto && consentChecked ? "pointer" : "not-allowed" }}>
+            <button 
+              type="button" 
+              onClick={handleNextToScreenShare} 
+              disabled={!capturedPhoto || !consentChecked || !faceResult?.isValid || isAnalyzingFace} 
+              style={{ 
+                width: "100%", 
+                padding: "0.625rem", 
+                backgroundColor: capturedPhoto && consentChecked && faceResult?.isValid ? "#10b981" : "#94a3b8", 
+                color: "#fff", 
+                border: "none", 
+                borderRadius: "0.375rem", 
+                fontSize: "0.875rem", 
+                fontWeight: 600, 
+                cursor: capturedPhoto && consentChecked && faceResult?.isValid ? "pointer" : "not-allowed" 
+              }}
+            >
               Next: Share Screen →
             </button>
           </>
