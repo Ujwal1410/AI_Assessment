@@ -1,32 +1,5 @@
 import { useRef, useState, useCallback } from "react";
 import * as tf from "@tensorflow/tfjs";
-import type * as blazefaceModule from "@tensorflow-models/blazeface";
-
-// Use the actual types from blazeface
-type BlazeFaceModel = blazefaceModule.BlazeFaceModel;
-type NormalizedFace = blazefaceModule.NormalizedFace;
-
-// Helper functions to extract values from tensors or arrays
-function getCoordinates(value: number[] | tf.Tensor1D): [number, number] {
-  if (Array.isArray(value)) {
-    return [value[0], value[1]];
-  }
-  // If it's a tensor, we need to get the data synchronously
-  const data = value.dataSync();
-  return [data[0], data[1]];
-}
-
-function getProbabilityValue(value: number | tf.Tensor1D | undefined): number {
-  if (value === undefined) {
-    return 0;
-  }
-  if (typeof value === "number") {
-    return value;
-  }
-  // If it's a tensor, get the first value
-  const data = value.dataSync();
-  return data[0];
-}
 
 export interface FaceDetectionResult {
   faceCount: number;
@@ -57,13 +30,13 @@ export function useFaceDetection(): UseFaceDetectionReturn {
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
-  const modelRef = useRef<BlazeFaceModel | null>(null);
+  const faceMeshRef = useRef<any>(null);
   const modelLoadingRef = useRef(false);
 
-  // Load the blazeface model
+  // Load the FaceMesh model (same as used in assessment proctoring)
   const loadModel = useCallback(async (): Promise<boolean> => {
     // Already loaded
-    if (modelRef.current) return true;
+    if (faceMeshRef.current) return true;
     
     // Already loading
     if (modelLoadingRef.current) {
@@ -76,7 +49,7 @@ export function useFaceDetection(): UseFaceDetectionReturn {
           }
         }, 100);
       });
-      return !!modelRef.current;
+      return !!faceMeshRef.current;
     }
 
     modelLoadingRef.current = true;
@@ -97,12 +70,18 @@ export function useFaceDetection(): UseFaceDetectionReturn {
         }
       }
 
-      // Dynamic import of blazeface
-      const blazeface = await import("@tensorflow-models/blazeface");
-      const model = await blazeface.load();
+      // Load FaceMesh model (same as useCameraProctor.ts)
+      const faceLandmarksDetection = await import("@tensorflow-models/face-landmarks-detection");
+      faceMeshRef.current = await faceLandmarksDetection.createDetector(
+        faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
+        {
+          runtime: "tfjs",
+          refineLandmarks: true,
+          maxFaces: 5, // Detect up to 5 faces
+        }
+      );
       
-      modelRef.current = model;
-      console.log("[FaceDetection] Model loaded successfully");
+      console.log("[FaceDetection] FaceMesh model loaded successfully");
       return true;
     } catch (error) {
       console.error("[FaceDetection] Model load error:", error);
@@ -123,9 +102,9 @@ export function useFaceDetection(): UseFaceDetectionReturn {
 
       try {
         // Ensure model is loaded
-        if (!modelRef.current) {
+        if (!faceMeshRef.current) {
           const loaded = await loadModel();
-          if (!loaded || !modelRef.current) {
+          if (!loaded || !faceMeshRef.current) {
             return {
               faceCount: 0,
               status: "no_face",
@@ -136,16 +115,10 @@ export function useFaceDetection(): UseFaceDetectionReturn {
           }
         }
 
-        // Run detection
-        const predictions: NormalizedFace[] = await modelRef.current.estimateFaces(source, false);
+        // Run FaceMesh detection
+        const predictions = await faceMeshRef.current.estimateFaces(source);
         
-        // Filter predictions by confidence (only keep faces with >70% confidence)
-        const confidentFaces = predictions.filter((pred) => {
-          const prob = getProbabilityValue(pred.probability);
-          return prob > 0.7;
-        });
-
-        const faceCount = confidentFaces.length;
+        const faceCount = predictions.length;
 
         if (faceCount === 0) {
           return {
@@ -167,27 +140,65 @@ export function useFaceDetection(): UseFaceDetectionReturn {
           };
         }
 
-        // Single face detected - get bounding box
-        const face = confidentFaces[0];
-        const topLeft = getCoordinates(face.topLeft);
-        const bottomRight = getCoordinates(face.bottomRight);
-        const probability = getProbabilityValue(face.probability);
+        // Single face detected - get bounding box from keypoints
+        const face = predictions[0];
+        const keypoints = face.keypoints;
+        
+        if (!keypoints || keypoints.length < 100) {
+          return {
+            faceCount: 0,
+            status: "no_face",
+            confidence: 0,
+            message: "Face not detected properly. Please look at the camera.",
+            isValid: false,
+          };
+        }
+
+        // Calculate bounding box from keypoints
+        const xs = keypoints.map((kp: any) => kp.x);
+        const ys = keypoints.map((kp: any) => kp.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
 
         const boundingBox = {
-          x: topLeft[0],
-          y: topLeft[1],
-          width: bottomRight[0] - topLeft[0],
-          height: bottomRight[1] - topLeft[1],
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
         };
 
-        // Check if face is large enough (at least 80x80 pixels)
-        if (boundingBox.width < 80 || boundingBox.height < 80) {
+        // Check if face is large enough (at least 60x60 pixels)
+        if (boundingBox.width < 60 || boundingBox.height < 60) {
           return {
             faceCount: 1,
             status: "no_face",
-            confidence: probability,
+            confidence: 0.5,
             boundingBox,
             message: "Face too small. Please move closer to the camera.",
+            isValid: false,
+          };
+        }
+
+        // Check if face is centered reasonably (within middle 80% of frame)
+        const sourceWidth = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+        const sourceHeight = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+        
+        const faceCenterX = minX + boundingBox.width / 2;
+        const faceCenterY = minY + boundingBox.height / 2;
+        
+        const marginX = sourceWidth * 0.1;
+        const marginY = sourceHeight * 0.1;
+        
+        if (faceCenterX < marginX || faceCenterX > sourceWidth - marginX ||
+            faceCenterY < marginY || faceCenterY > sourceHeight - marginY) {
+          return {
+            faceCount: 1,
+            status: "no_face",
+            confidence: 0.7,
+            boundingBox,
+            message: "Please center your face in the frame.",
             isValid: false,
           };
         }
@@ -195,7 +206,7 @@ export function useFaceDetection(): UseFaceDetectionReturn {
         return {
           faceCount: 1,
           status: "single_face",
-          confidence: probability,
+          confidence: 0.95,
           boundingBox,
           message: "Face detected successfully!",
           isValid: true,
@@ -251,4 +262,3 @@ export function useFaceDetection(): UseFaceDetectionReturn {
 }
 
 export default useFaceDetection;
-

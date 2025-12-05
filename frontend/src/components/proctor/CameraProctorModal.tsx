@@ -181,23 +181,31 @@ export function CameraProctorModal({
     
     canvas.width = targetWidth;
     canvas.height = targetHeight;
+    
+    // First, capture NON-MIRRORED image for face detection (better accuracy)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const nonMirroredPhoto = canvas.toDataURL("image/jpeg", 0.8);
+    
+    // Now capture MIRRORED image for display (natural selfie view)
+    ctx.save();
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
     
-    const photoData = canvas.toDataURL("image/jpeg", 0.6);
-    setCapturedPhoto(photoData);
+    const mirroredPhoto = canvas.toDataURL("image/jpeg", 0.7);
+    setCapturedPhoto(mirroredPhoto);
     setIsCapturing(false);
     
-    // Analyze face in captured photo
+    // Analyze face using NON-MIRRORED photo (better for face detection)
     setIsAnalyzingFace(true);
     try {
-      const result = await detectFacesFromDataUrl(photoData);
+      const result = await detectFacesFromDataUrl(nonMirroredPhoto);
       setFaceResult(result);
       
       if (result.isValid) {
-        // Only save to session storage if face is valid
-        sessionStorage.setItem("candidateReferencePhoto", photoData);
+        // Save the mirrored photo (natural looking) as reference
+        sessionStorage.setItem("candidateReferencePhoto", mirroredPhoto);
       }
     } catch (error) {
       console.error("Face detection error:", error);
@@ -213,11 +221,21 @@ export function CameraProctorModal({
     }
   }, [cameraReady, detectFacesFromDataUrl]);
 
-  const handleRetakePhoto = useCallback(() => {
+  const handleRetakePhoto = useCallback(async () => {
     setCapturedPhoto(null);
     setFaceResult(null);
     setLocalError(null);
     sessionStorage.removeItem("candidateReferencePhoto");
+    
+    // Re-attach stream to video element and ensure it's playing
+    if (previewVideoRef.current && previewStreamRef.current) {
+      previewVideoRef.current.srcObject = previewStreamRef.current;
+      try {
+        await previewVideoRef.current.play();
+      } catch (err) {
+        console.error("Error restarting video:", err);
+      }
+    }
   }, []);
 
   const handleNextToScreenShare = useCallback(() => {
