@@ -82,9 +82,9 @@ interface DebugInfo {
 // Constants
 // ============================================================================
 
-const DEFAULT_DETECTION_INTERVAL_MS = 700;
+const DEFAULT_DETECTION_INTERVAL_MS = 1000;
 const DEFAULT_THROTTLE_INTERVAL_MS = 5000;
-const DEFAULT_GAZE_AWAY_THRESHOLD = 3; // 3 consecutive checks ≈ 2.1s
+const DEFAULT_GAZE_AWAY_THRESHOLD = 5; // 5 consecutive checks ≈ 5s
 const DEFAULT_MULTI_FACE_CONFIDENCE = 0.5;
 const DEFAULT_BLINK_TIMEOUT_SECONDS = 6;
 const DEFAULT_FACE_MISMATCH_THRESHOLD = 0.35; // Similarity threshold (lower = stricter)
@@ -107,11 +107,11 @@ const FACE_MISMATCH_CONSECUTIVE_THRESHOLD = 3; // Consecutive mismatches before 
 // Eye aspect ratio threshold for blink detection
 const EYE_AR_THRESHOLD = 0.2;
 
-// Gaze thresholds (relative pupil position)
-const GAZE_LEFT_THRESHOLD = -0.15;
-const GAZE_RIGHT_THRESHOLD = 0.15;
-const GAZE_UP_THRESHOLD = -0.12;
-const GAZE_DOWN_THRESHOLD = 0.12;
+// Gaze thresholds (relative pupil position) - widened for natural reading
+const GAZE_LEFT_THRESHOLD = -0.25;
+const GAZE_RIGHT_THRESHOLD = 0.25;
+const GAZE_UP_THRESHOLD = -0.20;
+const GAZE_DOWN_THRESHOLD = 0.20;
 
 // Head movement threshold for spoof detection
 const HEAD_MOVEMENT_THRESHOLD = 2.5; // pixels of average landmark movement
