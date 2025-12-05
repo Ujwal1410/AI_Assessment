@@ -221,22 +221,28 @@ export function CameraProctorModal({
     }
   }, [cameraReady, detectFacesFromDataUrl]);
 
-  const handleRetakePhoto = useCallback(async () => {
+  const handleRetakePhoto = useCallback(() => {
     setCapturedPhoto(null);
     setFaceResult(null);
     setLocalError(null);
     sessionStorage.removeItem("candidateReferencePhoto");
-    
-    // Re-attach stream to video element and ensure it's playing
-    if (previewVideoRef.current && previewStreamRef.current) {
-      previewVideoRef.current.srcObject = previewStreamRef.current;
-      try {
-        await previewVideoRef.current.play();
-      } catch (err) {
-        console.error("Error restarting video:", err);
-      }
-    }
   }, []);
+
+  // Effect to restart video when capturedPhoto is cleared (retake scenario)
+  useEffect(() => {
+    if (!capturedPhoto && previewVideoRef.current && previewStreamRef.current && cameraReady) {
+      // Small delay to ensure video element is mounted after state change
+      const timer = setTimeout(() => {
+        if (previewVideoRef.current && previewStreamRef.current) {
+          previewVideoRef.current.srcObject = previewStreamRef.current;
+          previewVideoRef.current.play().catch(err => {
+            console.error("Error restarting video:", err);
+          });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [capturedPhoto, cameraReady]);
 
   const handleNextToScreenShare = useCallback(() => {
     if (capturedPhoto && consentChecked && faceResult?.isValid) {
